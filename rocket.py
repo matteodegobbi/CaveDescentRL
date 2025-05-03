@@ -306,7 +306,7 @@ class Network:
     # Use GPU if available.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def __init__(self, learning_rate) -> None:
+    def __init__(self, learning_rate = 0.1) -> None:
         input_size = 5
         hidden_layer_size = 50
         output_size = 2
@@ -494,52 +494,38 @@ def run_rocket():
     env = Environment(graphics_on=True)
 
     running = True
-    state = env.reset()
+
     clock = pygame.time.Clock()
-    Q = np.load("Q.npy")
 
+    # Construct the network
+    network_path = "saves/save_1746313177_500.pt"
+    network = Network()
+    network.load(network_path)
+    network_hat = Network()
+    network_hat.load(network_path)
 
-    rewards = []
-    episodes_count = 0
     while running:
-        done = False
-        state = env.reset()
-        reward_sum = 0
+        # Perform episode
+        state, done = env.reset(), False
         while not done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
 
-            # keys = pygame.key.get_pressed()
-            # action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
-            action = np.argmax(Q[state])
+            # Choose an action.
+            q_values = network.predict(state[np.newaxis])[0]
+            action = np.argmax(q_values)
 
-            next_state, reward, terminated,truncated = env.step(action)
+            next_state, reward, terminated, truncated = env.step(action)
             done = terminated or truncated
-            if (truncated):
-                print("TRUNCATED ", env.steps_since_episode)
-            reward_sum += reward
+
+
             if env.graphics_on:
                 env.draw(screen)
                 clock.tick(60)
-
             if done:
                 if env.graphics_on:
                     pygame.time.delay(500)
-            state = next_state
-        rewards.append(reward_sum)
-        episodes_count += 1
-        if episodes_count % 10 == 0:
-            mean_return = np.mean(rewards[-100:])
-            std_return = np.std(rewards[-100:])
-            recent_returns = rewards[-10:]
-            returns_str = " ".join(map(str, recent_returns))
-            print(
-                f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
-        if episodes_count == 10000:
-            break
-    env.close()
-
 
 def human_play_rocket():
     pygame.init()
