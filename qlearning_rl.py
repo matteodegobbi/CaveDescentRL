@@ -17,6 +17,7 @@ class HumanAgent:
         available_coords = list(zip(*np.where(env.board == -1)))
         available = [r * 3 + c for r, c in available_coords]
         if not available:
+            print("No available move for human")
             return None
         return int(input())
 
@@ -179,25 +180,21 @@ def play():
     Q = np.load("q_table.npy")
     env = Environment(HumanAgent(),True)
     state = env.reset()
-    evaluating = True
-    while evaluating:
-        # Perform episode
-        state = env.reset()
-    
-        done = False
-        while not done:
-            available_moves = env.get_valid_moves()
-            q_values = Q[state]
-            q_filtered = np.where(available_moves > 0, q_values, -np.inf)
-            action = np.argmax(q_filtered)
-    
-            next_state, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-    
-            # Update the action-value estimates
-            #Q[state, action] += alpha * (reward + gamma * np.max(Q[next_state]) - Q[state, action])
-    
-            state = next_state
+    done = False
+    while not done:
+        available_moves = env.get_valid_moves()
+        q_values = Q[state]
+        q_filtered = np.where(available_moves > 0, q_values, -np.inf)
+        print(q_filtered)
+        action = np.argmax(q_filtered)
+
+        next_state, reward, terminated, truncated, _ = env.step(action)
+        done = terminated or truncated
+
+        # Update the action-value estimates
+        #Q[state, action] += alpha * (reward + gamma * np.max(Q[next_state]) - Q[state, action])
+
+        state = next_state
     print("finished game")
     env.print_board()
     
