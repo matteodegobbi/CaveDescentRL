@@ -4,15 +4,18 @@ from enum import Enum
 
 from pygame import Vector2
 
-PLAYER_X = 300
-PLAYER_Y = 400
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 
+PLAYER_X = 300
+PLAYER_Y = SCREEN_HEIGHT / 2
+
+OBSTACLE_WIDTH = 80
+OBSTACLE_GAP = 250
+
 from perlin_numpy import generate_perlin_noise_2d
-noise_size = 1024
-noise = generate_perlin_noise_2d((noise_size, noise_size), (4, 2), tileable=(True, True))
+
 
 class Action(Enum):
     RELEASED = 0
@@ -55,10 +58,11 @@ class Player:
 
 
 class Obstacle:
-    def __init__(self, point1: Vector2, point2: Vector2, type: ObstacleType):
+    def __init__(self, point1: Vector2, point2: Vector2, type: ObstacleType, total_x):
         self.point1 = point1
         self.point2 = point2
         self.type = type
+        self.total_x = total_x
 
 
     def draw(self, screen):
@@ -80,7 +84,12 @@ class Environment:
         self.background_color = (30, 30, 30)
         self.obstacles = []
 
+        self.noise = None
+        self.noise_size = 1024
+        self.reset()
+
     def reset(self):
+        self.noise = generate_perlin_noise_2d((self.noise_size, self.noise_size), (4, 2), tileable=(True, True))
         self.player = Player(PLAYER_X,PLAYER_Y)
         self.obstacles = []
         self.generate_random_obstacles()
@@ -93,12 +102,16 @@ class Environment:
             if obstacle.collides_with_rect(self.player.rect):
                 done = True
 
-        # TODO delete old obstacles
-        # TODO generate new obstacles
+        # delete old obstacles
+        if self.obstacles[0].point1.x < -OBSTACLE_WIDTH:
+            self.obstacles.pop(0)
 
-        # TODO move obstacles
-        done = False # TODO remove
+        # generate new obstacles
+        RENDER_OFFSET = 100
+        if self.obstacles[-1].point1.x + OBSTACLE_WIDTH - RENDER_OFFSET < SCREEN_WIDTH:
+            self.generate_random_obstacles(offset_x = SCREEN_WIDTH + RENDER_OFFSET)
 
+        self.move_obstacles()
 
         reward = 1 if not done else -100
         return self.get_state(), reward, done, {}
@@ -121,22 +134,38 @@ class Environment:
         if graphics_on:
             pygame.quit()
 
-    def generate_random_obstacles(self, n=100, offset_x = 0):
+    def generate_random_obstacles(self, n=20, offset_x = 0):
         offset_obstacles_y = 0
-        vertical_space = 250
-        obstacle_width = 80
         last_x = None
         last_y = None
+
+        total_x = 0
+        if len(self.obstacles) > 0:
+            total_x = self.obstacles[-2].total_x - OBSTACLE_WIDTH # -2 because the last is the bottom one and the second last is the top one
+            last_x = self.obstacles[-2].point2.x
+            last_y = self.obstacles[-2].point2.y
+
         for i in range(n):
-            x = offset_x + i * obstacle_width
-            y = np.interp(noise[x % noise_size, x % noise_size], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - vertical_space])
-            if last_x is not None:
-                obstacle = Obstacle(Vector2(last_x, last_y), Vector2(x, y), ObstacleType.TOP)
-                self.obstacles.append(obstacle)
-                obstacle = Obstacle(Vector2(last_x, last_y + vertical_space), Vector2(x, y + vertical_space), ObstacleType.BOTTOM)
-                self.obstacles.append(obstacle)
+            total_x = (total_x + OBSTACLE_WIDTH) % self.noise_size
+            x = offset_x + i * OBSTACLE_WIDTH
+            y = np.interp(self.noise[total_x, total_x], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - OBSTACLE_GAP])
+            if last_x is not None and last_y is not None:
+                self.add_obstacle(last_x, last_y, x, y, total_x)
             last_x = x
             last_y = y
+
+    def add_obstacle(self, x1, y1, x2, y2, total_x):
+        obstacle = Obstacle(Vector2(x1, y1), Vector2(x2, y2), ObstacleType.TOP, total_x)
+        self.obstacles.append(obstacle)
+        obstacle = Obstacle(Vector2(x1, y1 + OBSTACLE_GAP), Vector2(x2, y2 + OBSTACLE_GAP), ObstacleType.BOTTOM, total_x)
+        self.obstacles.append(obstacle)
+
+
+
+    def move_obstacles(self, speed = 5):
+        for obstacle in self.obstacles:
+            obstacle.point1.x -= speed
+            obstacle.point2.x -= speed
 
 graphics_on = True
 pygame.init()
@@ -158,7 +187,7 @@ while running:
     action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
 
     state, reward, done, _ = env.step(action)
-    print(state, reward, done)
+    # print(state, reward, done)
     if graphics_on:
         env.draw(screen)
         clock.tick(60)
