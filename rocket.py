@@ -316,10 +316,11 @@ class Environment:
             obstacle.point1.x -= speed
             obstacle.point2.x -= speed
 
-def train_rocket():
-    pygame.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    env = Environment(graphics_on=not False)
+def train_rocket(render = False):
+    if render:
+        pygame.init()
+        screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    env = Environment(graphics_on=render)
 
     running = True
     state = env.reset()
@@ -339,9 +340,10 @@ def train_rocket():
         state = env.reset()
         reward_sum = 0
         while not done:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+            if render:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
 
             # keys = pygame.key.get_pressed()
             # action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
