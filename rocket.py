@@ -394,7 +394,8 @@ def train_rocket():
         if reward_sum > best_reward_sum:
             best_reward_sum = reward_sum
             bestQ = Q
-            np.save(f"bests/bestQ{best_reward_sum}.npy", Q)
+            print(best_reward_sum)
+            np.save(f"bestQ.npy", Q)
         episodes_count += 1
         env.graphics_on = (episodes_count % 1000 == 0)
         if episodes_count % 100 == 0:
