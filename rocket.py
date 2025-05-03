@@ -10,6 +10,10 @@ PLAYER_Y = 400
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 
+from perlin_numpy import generate_perlin_noise_2d
+noise_size = 1024
+noise = generate_perlin_noise_2d((noise_size, noise_size), (4, 2), tileable=(True, True))
+
 class Action(Enum):
     RELEASED = 0
     PRESSED = 1
@@ -71,25 +75,33 @@ class Obstacle:
 
 # --- Environment class ---
 class Environment:
-    def __init__(self, player, obstacles):
+    def __init__(self, player):
         self.player = player
-        self.obstacles = obstacles
         self.background_color = (30, 30, 30)
-        self.done = False
+        self.obstacles = []
 
     def reset(self):
         self.player = Player(PLAYER_X,PLAYER_Y)
-        self.done = False
+        self.obstacles = []
+        self.generate_random_obstacles()
         return self.get_state()
 
     def step(self, action):
         self.player.update(action)
+        done = False
         for obstacle in self.obstacles:
             if obstacle.collides_with_rect(self.player.rect):
-                self.done = True
+                done = True
 
-        reward = 1 if not self.done else -100
-        return self.get_state(), reward, self.done, {}
+        # TODO delete old obstacles
+        # TODO generate new obstacles
+
+        # TODO move obstacles
+        done = False # TODO remove
+
+
+        reward = 1 if not done else -100
+        return self.get_state(), reward, done, {}
 
     def get_state(self):
         return np.array([
@@ -109,16 +121,28 @@ class Environment:
         if graphics_on:
             pygame.quit()
 
+    def generate_random_obstacles(self, n=100, offset_x = 0):
+        offset_obstacles_y = 0
+        vertical_space = 250
+        obstacle_width = 80
+        last_x = None
+        last_y = None
+        for i in range(n):
+            x = offset_x + i * obstacle_width
+            y = np.interp(noise[x % noise_size, x % noise_size], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - vertical_space])
+            if last_x is not None:
+                obstacle = Obstacle(Vector2(last_x, last_y), Vector2(x, y), ObstacleType.TOP)
+                self.obstacles.append(obstacle)
+                obstacle = Obstacle(Vector2(last_x, last_y + vertical_space), Vector2(x, y + vertical_space), ObstacleType.BOTTOM)
+                self.obstacles.append(obstacle)
+            last_x = x
+            last_y = y
 
 graphics_on = True
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 player = Player(PLAYER_X, PLAYER_Y)
-obstacles = [
-    Obstacle(Vector2(0, 0), Vector2(SCREEN_WIDTH, SCREEN_HEIGHT/2), ObstacleType.TOP),
-    Obstacle(Vector2(0, SCREEN_HEIGHT), Vector2(SCREEN_WIDTH, SCREEN_HEIGHT/2), ObstacleType.BOTTOM),
-]  # Add obstacles later if needed
-env = Environment(player, obstacles)
+env = Environment(player)
 
 running = True
 state = env.reset()
