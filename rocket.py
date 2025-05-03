@@ -530,16 +530,11 @@ def human_play_rocket():
     env = Environment(graphics_on=True)
 
     running = True
-    state = env.reset()
     clock = pygame.time.Clock()
 
-
-    rewards = []
-    episodes_count = 0
     while running:
         done = False
-        state = env.reset()
-        reward_sum = 0
+        env.reset()
         while not done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -550,7 +545,7 @@ def human_play_rocket():
 
             next_state, reward, terminated,truncated = env.step(action)
             done = terminated
-            reward_sum += reward
+
             if env.graphics_on:
                 env.draw(screen)
                 clock.tick(60)
@@ -558,18 +553,6 @@ def human_play_rocket():
             if done:
                 if env.graphics_on:
                     pygame.time.delay(500)
-            state = next_state
-        rewards.append(reward_sum)
-        episodes_count += 1
-        if episodes_count % 10 == 0:
-            mean_return = np.mean(rewards[-100:])
-            std_return = np.std(rewards[-100:])
-            recent_returns = rewards[-10:]
-            returns_str = " ".join(map(str, recent_returns))
-            print(
-                f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
-        if episodes_count == 10000:
-            break
     env.close()
 
 import  argparse
