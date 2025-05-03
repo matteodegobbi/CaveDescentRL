@@ -2,8 +2,11 @@ import numpy as np
 import random
 import argparse
 
+observation_space = 3 ** 9
+action_space = 9
+
 class RandomAgent:
-    def get_action(self,env):
+    def get_action(self,env,state):
         return self.get_random_move(env)
         
     def get_random_move(self,env):
@@ -14,7 +17,7 @@ class RandomAgent:
         return random.choice(available)
         
 class HumanAgent:
-    def get_action(self,env):
+    def get_action(self,env,state):
         available_coords = list(zip(*np.where(env.board == -1)))
         available = [r * 3 + c for r, c in available_coords]
         if not available:
@@ -24,8 +27,8 @@ class HumanAgent:
 
 class QLearnAgent:
 
-    def __init__(self,env,epsilon = 0.1,alpha = 0.5,gamma = 0.5):
-        self.Q = np.zeros((env.observation_space, env.action_space))
+    def __init__(self,epsilon = 0.1,alpha = 0.5,gamma = 0.5):
+        self.Q = np.zeros((observation_space, action_space))
         self.epsilon = epsilon
         self.alpha = alpha
         self.gamma = gamma
@@ -54,8 +57,6 @@ class Environment:
     def __init__(self, agent2, prints_board=False):
         self.board = np.full((3, 3), -1)
         self.current_player = 0
-        self.observation_space = 3 ** 9
-        self.action_space = 9
         self.prints_board = prints_board
         self.agent2 = agent2
     
@@ -69,7 +70,7 @@ class Environment:
         if self.prints_board:
             self.print_board()
         self.current_player = self.get_opposite_player()
-        other_action = self.agent2.get_action(self)
+        other_action = self.agent2.get_action(self,self.get_state())
         if other_action is None:
             # Draw
             return self.get_state(), 0, True, False, {}
@@ -84,7 +85,7 @@ class Environment:
         return self.get_state(), 0, False, False, {}
 
     def make_move(self, move, player):
-        one_hot_move = np.zeros(self.action_space)
+        one_hot_move = np.zeros(action_space)
         one_hot_move[move] = 1
         coords = (move // 3, move % 3)
         if self.board[coords] != -1:
@@ -95,7 +96,7 @@ class Environment:
     def get_valid_moves(self):
         available_coords = list(zip(*np.where(self.board == -1)))
         available = [r * 3 + c for r, c in available_coords]
-        moves = np.zeros(self.action_space)
+        moves = np.zeros(action_space)
         for move in available:
             moves[move] = 1
         return moves
@@ -151,10 +152,10 @@ class Environment:
         return state
 def train_q_learn():
 
+    agent1 = QLearnAgent()
     agent2 = RandomAgent()
     env = Environment(agent2)
 
-    agent1 = QLearnAgent(env)
     training = True
     
     rewards = []
@@ -194,9 +195,9 @@ def train_q_learn():
     agent1.save("q_table.npy")
 
 def play():
+    agent1 = QLearnAgent(epsilon = 0)
     agent2 = HumanAgent()
     env = Environment(agent2,True)
-    agent1 = QLearnAgent(env, epsilon = 0)
     agent1.load("q_table.npy")
 
     state = env.reset()
