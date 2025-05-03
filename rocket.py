@@ -4,7 +4,7 @@ from enum import IntEnum, Enum
 import random
 from pygame import Vector2
 from perlin_numpy import generate_perlin_noise_2d
-
+import math
 
 SCREEN_WIDTH = 900
 SCREEN_HEIGHT = 700
@@ -100,7 +100,7 @@ class Environment:
         self.truncated = False
         self.steps_since_episode = 0
         self.obstacles = []
-        self.generate_random_obstacles(keep_middle_clear = True, n=50)
+        self.generate_random_obstacles(keep_middle_clear = True, n=20)
         self.total_level = 0
 
         self.player = Player()
@@ -180,28 +180,32 @@ class Environment:
         if min(y1, y2) <= y_intersect <= max(y1, y2) and y_intersect <= py:
             return py - y_intersect
         return None
-
-    def horizontal_ray_segment_intersection_right(self,point, p_seg1, p_seg2):
+    def ray_segment_intersection(self,point, angle_deg, p_seg1, p_seg2):
         px, py = point
         x1, y1 = p_seg1
         x2, y2 = p_seg2
-        if (y1 - py) * (y2 - py) > 0:
-            return None
-        if y1 == y2:
-            if y1 != py:
-                return None
-            x_left = min(x1, x2)
-            x_right = max(x1, x2)
-            if px <= x_right:
-                return max(px, x_left) - px
-            return None
-        m = (y2 - y1) / (x2 - x1)
-        b = y1 - m * x1
-        if m == 0:
-            return None
-        x_intersect = (py - b) / m
-        if min(x1, x2) <= x_intersect <= max(x1, x2) and x_intersect >= px:
-            return x_intersect - px
+
+        angle_rad = math.radians(angle_deg)
+        dx = math.cos(angle_rad)
+        dy = math.sin(angle_rad)
+
+        rx, ry = dx, dy
+        sx, sy = x2 - x1, y2 - y1
+        denom = rx * sy - ry * sx
+        if abs(denom) < 1e-10:
+            return None  # Parallel, no intersection
+
+        # Solve for t and u
+        t_num = (x1 - px) * sy - (y1 - py) * sx
+        u_num = (x1 - px) * ry - (y1 - py) * rx
+        t = t_num / denom
+        u = u_num / denom
+
+        if t >= 0 and 0 <= u <= 1:
+            intersection_x = px + t * rx
+            intersection_y = py + t * ry
+            distance = math.hypot(intersection_x - px, intersection_y - py)
+            return distance
         return None
 
     def get_obstacle_distances(self):
@@ -214,7 +218,7 @@ class Environment:
             curr_dist_up = self.vertical_ray_segment_intersection_up(self.player.rect.center, obstacle.point1,
                                                                      obstacle.point2)
 
-            curr_dist_right = self.horizontal_ray_segment_intersection_right(self.player.rect.center, obstacle.point1,
+            curr_dist_right = self.ray_segment_intersection(self.player.rect.center,0, obstacle.point1,
                                                                      obstacle.point2)
             if curr_dist_down != None and curr_dist_down < min_dist_down:
                 min_dist_down = curr_dist_down
@@ -288,7 +292,7 @@ class Environment:
             last_y = self.obstacles[-2].point2.y
 
         for i in range(n):
-            offset_obstacles_y = np.interp(i, [0, n], [150, 5]) if keep_middle_clear else 5
+            offset_obstacles_y = np.interp(i, [0, n], [75, 5]) if keep_middle_clear else 5
             obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
             total_x = (total_x + OBSTACLE_WIDTH) % self.noise_size
             x = offset_x + i * OBSTACLE_WIDTH
@@ -302,7 +306,7 @@ class Environment:
             last_x = x
             last_y = y
     def get_obstacle_size(self, level):
-        return max(-10 * level + 300, 150)
+        return max(-10 * level + 250, 150)
 
     def move_obstacles(self, speed = 5):
         for obstacle in self.obstacles:
@@ -323,7 +327,6 @@ def train_rocket():
     epsilon = 0.1
     alpha = 0.1
     gamma = 0.5
-    iters = 0
 
     rewards = []
     episodes_count = 0
@@ -363,7 +366,10 @@ def train_rocket():
             state = next_state
         rewards.append(reward_sum)
         episodes_count += 1
-        env.graphics_on = (episodes_count % 100 == 0 or episodes_count > 500)
+        env.graphics_on = (episodes_count % 1000 == 0)
+        if episodes_count % 100 == 0:
+            print("Saving Q...")
+            np.save("Q.npy", Q)
         if episodes_count % 10 == 0:
             mean_return = np.mean(rewards[-100:])
             std_return = np.std(rewards[-100:])
@@ -371,14 +377,127 @@ def train_rocket():
             returns_str = " ".join(map(str, recent_returns))
             print(
                 f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
+        if episodes_count == 10000:
+            break
 
     env.close()
 
 
-import sys
-def main():
-    train_rocket()
+def run_rocket():
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    env = Environment(graphics_on=not True)
 
+    running = True
+    state = env.reset()
+    clock = pygame.time.Clock()
+    Q = np.load("Q.npy")
+
+
+    rewards = []
+    episodes_count = 0
+    while running:
+        done = False
+        state = env.reset()
+        reward_sum = 0
+        while not done:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+
+            # keys = pygame.key.get_pressed()
+            # action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
+            action = np.argmax(Q[state])
+
+            next_state, reward, terminated,truncated = env.step(action)
+            done = terminated
+            reward_sum += reward
+            if env.graphics_on:
+                env.draw(screen)
+                clock.tick(60)
+
+            if done:
+                if env.graphics_on:
+                    pygame.time.delay(500)
+            state = next_state
+        rewards.append(reward_sum)
+        episodes_count += 1
+        if episodes_count % 10 == 0:
+            mean_return = np.mean(rewards[-100:])
+            std_return = np.std(rewards[-100:])
+            recent_returns = rewards[-10:]
+            returns_str = " ".join(map(str, recent_returns))
+            print(
+                f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
+        if episodes_count == 10000:
+            break
+    env.close()
+
+
+def human_play_rocket():
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    env = Environment(graphics_on=True)
+
+    running = True
+    state = env.reset()
+    clock = pygame.time.Clock()
+
+
+    rewards = []
+    episodes_count = 0
+    while running:
+        done = False
+        state = env.reset()
+        reward_sum = 0
+        while not done:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+
+            keys = pygame.key.get_pressed()
+            action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
+
+            next_state, reward, terminated,truncated = env.step(action)
+            done = terminated
+            reward_sum += reward
+            if env.graphics_on:
+                env.draw(screen)
+                clock.tick(60)
+
+            if done:
+                if env.graphics_on:
+                    pygame.time.delay(500)
+            state = next_state
+        rewards.append(reward_sum)
+        episodes_count += 1
+        if episodes_count % 10 == 0:
+            mean_return = np.mean(rewards[-100:])
+            std_return = np.std(rewards[-100:])
+            recent_returns = rewards[-10:]
+            returns_str = " ".join(map(str, recent_returns))
+            print(
+                f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
+        if episodes_count == 10000:
+            break
+    env.close()
+
+import  argparse
+def main():
+    parser = argparse.ArgumentParser(description="Rocket program controller")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--human', action='store_true', help='Play as a human')
+    group.add_argument('--run', action='store_true', help='Run the rocket automatically')
+    group.add_argument('--train', action='store_true', help='Train the rocket')
+
+    args = parser.parse_args()
+
+    if args.human:
+        human_play_rocket()
+    elif args.run:
+        run_rocket()
+    elif args.train:
+        train_rocket()
 
 if __name__ == '__main__':
     main()
