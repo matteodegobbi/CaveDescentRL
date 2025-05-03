@@ -1,10 +1,18 @@
+import collections
+import time
+from typing_extensions import Self
+
 import pygame
 import numpy as np
 from enum import IntEnum, Enum
 import random
+
+import torch
 from pygame import Vector2
 from perlin_numpy import generate_perlin_noise_2d
 import math
+
+import wrappers
 
 SCREEN_WIDTH = 900
 SCREEN_HEIGHT = 700
@@ -220,8 +228,6 @@ class Environment:
 
             curr_dist_right = self.ray_segment_intersection(self.player.rect.center,0, obstacle.point1,
                                                                      obstacle.point2)
-            # curr_dist_right = self.horizontal_ray_segment_intersection_right(self.player.rect.center, obstacle.point1,
-            #                                                                  obstacle.point2)
             if curr_dist_down != None and curr_dist_down < min_dist_down:
                 min_dist_down = curr_dist_down
 
@@ -249,26 +255,7 @@ class Environment:
             dist_obst_right / SCREEN_WIDTH,
         ], dtype=np.float32)
 
-        return self.discretize_state(state)
-
-
-    def discretize_state(self, state):
-        # state: [y, velocity, dist_down, dist_up, dist_right]
-        y_bins = 10
-        v_bins = 10
-        d_bins = 10
-
-        y = min(int(state[0] * y_bins), y_bins - 1)
-        v = min(int((state[1] + 1.5) / 3.0 * v_bins), v_bins - 1)
-        d_down = min(int(state[2] * d_bins), d_bins - 1)
-        d_up = min(int(state[3] * d_bins), d_bins - 1)
-        d_right = min(int(state[4] * d_bins), d_bins - 1)
-
-        num_states = y_bins * v_bins * d_bins * d_bins * d_bins
-        num_actions = 2
-        #print("Q-table size:", num_states * num_actions)
-        return ((((y * v_bins + v) * d_bins + d_down) * d_bins + d_up) * d_bins + d_right)
-
+        return state
 
     def draw(self,screen):
         assert self.graphics_on
@@ -315,6 +302,80 @@ class Environment:
         for obstacle in self.obstacles:
             obstacle.point1.x -= speed
             obstacle.point2.x -= speed
+class Network:
+    # Use GPU if available.
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def __init__(self, learning_rate) -> None:
+        input_size = 5
+        hidden_layer_size = 50
+        output_size = 2
+        self._model = torch.nn.Sequential(
+            torch.nn.Linear(input_size, hidden_layer_size),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_layer_size, hidden_layer_size),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_layer_size, hidden_layer_size),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_layer_size, output_size),
+        ).to(self.device)
+
+        # Define an optimizer (most likely from `torch.optim`).
+        self._optimizer = torch.optim.Adam(self._model.parameters(), lr=learning_rate)
+
+        # Define the loss (most likely some `torch.nn.*Loss`).
+        self._loss = torch.nn.MSELoss()
+
+        # PyTorch uses uniform initializer $U[-1/sqrt n, 1/sqrt n]$ for both weights and biases.
+        # Keras uses Glorot (also known as Xavier) uniform for weights and zeros for biases.
+        # In some experiments, the Keras initialization works slightly better for RL,
+        # so we use it instead of the PyTorch initialization; but feel free to experiment.
+        self._model.apply(wrappers.torch_init_with_xavier_and_zeros)
+
+        self.initial_time = round(time.time())
+
+        print(self.count_trainable_parameters())
+
+    # Define a training method. Generally you have two possibilities
+    # - pass new q_values of all actions for a given state; all but one are the same as before
+    # - pass only one new q_value for a given state, and include the index of the action to which
+    #   the new q_value belongs
+    # The code below implements the first option, but you can change it if you want.
+    #
+    # The `wrappers.typed_torch_function` automatically converts input arguments
+    # to PyTorch tensors of given type, and converts the result to a NumPy array.
+    @wrappers.typed_torch_function(device, torch.float32, torch.float32)
+    def train(self, states: torch.Tensor, q_values: torch.Tensor) -> None:
+        self._model.train()
+        predictions = self._model(states)
+        loss = self._loss(predictions, q_values)
+        self._optimizer.zero_grad()
+        loss.backward()
+        with torch.no_grad():
+            self._optimizer.step()
+
+    @wrappers.typed_torch_function(device, torch.float32)
+    def predict(self, states: torch.Tensor) -> np.ndarray:
+        self._model.eval()
+        with torch.no_grad():
+            return self._model(states)
+
+    # If you want to use target network, the following method copies weights from
+    # a given Network to the current one.
+    def copy_weights_from(self, other: Self) -> None:
+        self._model.load_state_dict(other._model.state_dict())
+
+    def load(self, network_path):
+        self._model.load_state_dict(torch.load(network_path, weights_only=True))
+        self._model.eval()
+
+    def save(self, episode):
+        torch.save(self._model.state_dict(),f"./saves/save_{self.initial_time}_{episode}.pt")
+
+    def count_trainable_parameters(self):
+        model_parameters = filter(lambda p: p.requires_grad, self._model.parameters())
+        params = sum([np.prod(p.size()) for p in model_parameters])
+        return params
 
 def train_rocket(render = False):
     if render:
@@ -323,21 +384,33 @@ def train_rocket(render = False):
     env = Environment(graphics_on=render)
 
     running = True
-    state = env.reset()
+
+    epsilon_start = 1
+    epsilon_final_at = 2000
+    epsilon_final = 0.1
+    epsilon = epsilon_start
+    alpha = 0.0001
+    gamma = 0.99
+    batch_size = 32
+    target_update_freq = 300
+    save_every = 100
 
     clock = pygame.time.Clock()
-    Q = np.zeros(( 200000, 2))
 
-    epsilon = 0.1
-    alpha = 0.1
-    gamma = 0.5
+    # Construct the network
+    network = Network(learning_rate=alpha)
+    network_hat = Network(learning_rate=alpha)
 
+    # Replay memory; the `max_length` parameter can be passed to limit its size.
+    replay_buffer = wrappers.ReplayBuffer(max_length=50000)
+    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "done", "next_state"])
+
+    step = 0
+    episode = 0
     rewards = []
-    episodes_count = 0
-
     while running:
-        done = False
-        state = env.reset()
+        # Perform episode
+        state, done = env.reset(), False
         reward_sum = 0
         while not done:
             if render:
@@ -345,47 +418,74 @@ def train_rocket(render = False):
                     if event.type == pygame.QUIT:
                         running = False
 
-            # keys = pygame.key.get_pressed()
-            # action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
+            # Choose an action.
+            q_values = network.predict(state[np.newaxis])[0]
+            action = np.argmax(q_values) #if np.random.random() > epsilon else np.random.choice([Action.PRESSED, Action.RELEASED])
 
-            if np.random.rand() < epsilon:
-                action = np.random.choice([Action.PRESSED, Action.RELEASED])  # Explore
-            else:
-                action = np.argmax(Q[state])  # Exploit
-
-            next_state, reward, terminated,truncated = env.step(action)
+            next_state, reward, terminated, truncated = env.step(action)
             done = terminated or truncated
-            if truncated:
-                print("TRUNCATED ", env.steps_since_episode)
-
-            Q[state, action] += alpha * (reward + gamma * np.max(Q[next_state]) - Q[state, action])
             reward_sum += reward
+
+
+            # Append state, action, reward, done and next_state to replay_buffer
+            replay_buffer.append(Transition(state, action, reward, done, next_state))
+
+            # If the `replay_buffer` is large enough, perform training using
+            # a batch of `args.batch_size` uniformly randomly chosen transitions.
+
+            if len(replay_buffer) < batch_size:
+                continue
+
+            # The `replay_buffer` offers a method with signature
+            #   sample(self, size, generator=np.random, replace=True) -> list[Transition]
+            # which returns uniformly selected batch of `size` transitions, either with
+            # replacement (which is much faster, and hence the default) or without.
+            # By default, `np.random` is used to generate the random indices, but you can
+            # pass your own `np.random.RandomState` instance.
+
+            batch = replay_buffer.sample(batch_size)
+
+            batch_states = np.array([t.state for t in batch])
+            q_vals = network.predict(batch_states)
+            batch_next_states = np.array([t.next_state for t in batch])
+            q_next_vals = network_hat.predict(batch_next_states)
+
+            batch_actions = [t.action for t in batch]
+            batch_rewards = [t.reward for t in batch]
+            batch_dones = [t.done for t in batch]
+            q_vals[np.arange(batch_size), batch_actions] = np.array(batch_rewards) + gamma * np.max(
+                q_next_vals, axis=1) * (1 - np.array(batch_dones))
+
+            # After you compute suitable targets, you can train the network by network.train
+            network.train(batch_states, q_vals)
+            state = next_state
+
+            step += 1
+            if step % target_update_freq == 0:
+                step = 0
+                network_hat.copy_weights_from(network)
 
             if env.graphics_on:
                 env.draw(screen)
                 clock.tick(60)
-
             if done:
                 if env.graphics_on:
                     pygame.time.delay(500)
-            state = next_state
         rewards.append(reward_sum)
-        episodes_count += 1
-        env.graphics_on = (episodes_count % 1000 == 0)
-        if episodes_count % 100 == 0:
-            print("Saving Q...")
-            np.save("Q.npy", Q)
-        if episodes_count % 10 == 0:
+        episode += 1
+        if epsilon_final_at:
+            epsilon = np.interp(episode + 1, [0, epsilon_final_at], [epsilon, epsilon_final])
+        if episode % save_every == 0:
+            network.save(episode)
+        if episode % 10 == 0:
             mean_return = np.mean(rewards[-100:])
             std_return = np.std(rewards[-100:])
             recent_returns = rewards[-10:]
             returns_str = " ".join(map(str, recent_returns))
             print(
-                f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
-        if episodes_count == 10000:
-            break
+                f"Episode {episode}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
 
-    env.close()
+
 
 
 def run_rocket():
