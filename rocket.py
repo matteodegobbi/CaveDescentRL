@@ -1,3 +1,5 @@
+from ssl import get_server_certificate
+
 import pygame
 import numpy as np
 from enum import IntEnum, Enum
@@ -126,21 +128,137 @@ class Environment:
         self.steps_since_episode += 1
         return self.get_state(), reward, self.terminated, self.truncated
 
+    def vertical_ray_segment_intersection_down(self,point, p_seg1, p_seg2):
+        px,py = point
+        x1, y1 = p_seg1
+        x2, y2 = p_seg2
+        # Check if segment crosses vertical line x = px
+        if (x1 - px) * (x2 - px) > 0:
+            return None  # Both endpoints on same side of vertical line
+
+        # Handle vertical segment
+        if x1 == x2:
+            if x1 != px:
+                return None
+            y_top = min(y1, y2)
+            y_bottom = max(y1, y2)
+            if py <= y_bottom:
+                return max(py, y_top) - py
+            return None
+
+        m = (y2 - y1) / (x2 - x1)
+        b = y1 - m * x1
+        y_intersect = m * px + b
+
+        if min(y1, y2) <= y_intersect <= max(y1, y2) and y_intersect >= py:
+            return y_intersect - py
+        return None
+
+    def vertical_ray_segment_intersection_up(self,point, p_seg1, p_seg2):
+        px, py = point
+        x1, y1 = p_seg1
+        x2, y2 = p_seg2
+        if (x1 - px) * (x2 - px) > 0:
+            return None
+
+        if x1 == x2:
+            if x1 != px:
+                return None
+            y_top = min(y1, y2)
+            y_bottom = max(y1, y2)
+            if py >= y_top:
+                return py - min(py, y_bottom)
+            return None
+
+        m = (y2 - y1) / (x2 - x1)
+        b = y1 - m * x1
+        y_intersect = m * px + b
+
+        if min(y1, y2) <= y_intersect <= max(y1, y2) and y_intersect <= py:
+            return py - y_intersect
+        return None
+
+    def horizontal_ray_segment_intersection_right(self,point, p_seg1, p_seg2):
+        px, py = point
+        x1, y1 = p_seg1
+        x2, y2 = p_seg2
+        if (y1 - py) * (y2 - py) > 0:
+            return None
+        if y1 == y2:
+            if y1 != py:
+                return None
+            x_left = min(x1, x2)
+            x_right = max(x1, x2)
+            if px <= x_right:
+                return max(px, x_left) - px
+            return None
+        m = (y2 - y1) / (x2 - x1)
+        b = y1 - m * x1
+        if m == 0:
+            return None
+        x_intersect = (py - b) / m
+        if min(x1, x2) <= x_intersect <= max(x1, x2) and x_intersect >= px:
+            return x_intersect - px
+        return None
+
+    def get_obstacle_distances(self):
+        min_dist_down = float('inf');
+        min_dist_up = float('inf');
+        min_dist_right = float('inf');
+        for obstacle in self.obstacles:
+            curr_dist_down = self.vertical_ray_segment_intersection_down(self.player.rect.center, obstacle.point1,
+                                                                         obstacle.point2)
+            curr_dist_up = self.vertical_ray_segment_intersection_up(self.player.rect.center, obstacle.point1,
+                                                                     obstacle.point2)
+
+            curr_dist_right = self.horizontal_ray_segment_intersection_right(self.player.rect.center, obstacle.point1,
+                                                                     obstacle.point2)
+            if curr_dist_down != None and curr_dist_down < min_dist_down:
+                min_dist_down = curr_dist_down
+
+            if curr_dist_up != None and curr_dist_up < min_dist_up:
+                min_dist_up = curr_dist_up
+
+            if curr_dist_right != None and curr_dist_right< min_dist_right:
+                min_dist_right= curr_dist_right
+        return min_dist_down, min_dist_up, min_dist_right
+
+
     def get_state(self):
         # y pos and vel are normalized
+        dist_obst_down, dist_obst_up,dist_obst_right = self.get_obstacle_distances()
+        dist_obst_down = min(dist_obst_down, SCREEN_HEIGHT)
+        dist_obst_up = min(dist_obst_up , SCREEN_HEIGHT)
+        dist_obst_right = min(dist_obst_right, SCREEN_WIDTH)
+
         state = np.array([
             self.player.rect.y / SCREEN_HEIGHT,
-            self.player.vel / 10.0
+            self.player.vel / 10.0,
+            dist_obst_down / SCREEN_HEIGHT,
+            dist_obst_up / SCREEN_HEIGHT,
+            dist_obst_right / SCREEN_WIDTH,
         ], dtype=np.float32)
+
         return self.discretize_state(state)
 
+
     def discretize_state(self, state):
-        # Expect state[0] in [0.0, 1.0], state[1] in ~[-1.5, 1.5]
-        y_bins = 50
-        v_bins = 20
+        # state: [y, velocity, dist_down, dist_up, dist_right]
+        y_bins = 10
+        v_bins = 10
+        d_bins = 10
+
         y = min(int(state[0] * y_bins), y_bins - 1)
-        v = min(int((state[1] + 1.5) / 3.0 * v_bins), v_bins - 1)  # Shift and scale to [0,1]
-        return y * v_bins + v
+        v = min(int((state[1] + 1.5) / 3.0 * v_bins), v_bins - 1)
+        d_down = min(int(state[2] * d_bins), d_bins - 1)
+        d_up = min(int(state[3] * d_bins), d_bins - 1)
+        d_right = min(int(state[4] * d_bins), d_bins - 1)
+
+        num_states = y_bins * v_bins * d_bins * d_bins * d_bins
+        num_actions = 2
+        #print("Q-table size:", num_states * num_actions)
+        return ((((y * v_bins + v) * d_bins + d_down) * d_bins + d_up) * d_bins + d_right)
+
 
     def draw(self,screen):
         assert self.graphics_on
@@ -189,13 +307,13 @@ def train_rocket():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     player = Player(PLAYER_X, PLAYER_Y)
-    env = Environment(player,graphics_on=not False)
+    env = Environment(player,graphics_on= False)
 
     running = True
     state = env.reset()
 
     clock = pygame.time.Clock()
-    Q = np.zeros((1000, 2))
+    Q = np.zeros(( 200000, 2))
 
     epsilon = 0.1
     alpha = 0.1
@@ -241,7 +359,7 @@ def train_rocket():
             state = next_state
         rewards.append(reward_sum)
         episodes_count += 1
-        # env.graphics_on = (episodes_count % 100 == 0)
+        env.graphics_on = (episodes_count % 100 == 0 or episodes_count > 500)
         if episodes_count % 10 == 0:
             mean_return = np.mean(rewards[-100:])
             std_return = np.std(rewards[-100:])
