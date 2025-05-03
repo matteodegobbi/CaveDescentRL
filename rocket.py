@@ -1,16 +1,12 @@
 import pygame
 import numpy as np
 from enum import IntEnum, Enum
-import random
 from pygame import Vector2
 from perlin_numpy import generate_perlin_noise_2d
 
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-
-PLAYER_X = 300
-PLAYER_Y = SCREEN_HEIGHT / 2
+SCREEN_WIDTH = 900
+SCREEN_HEIGHT = 700
 
 OBSTACLE_WIDTH = 80
 OBSTACLE_GAP = 250
@@ -31,11 +27,15 @@ class Rectangle:
         self.height = height
 
 class Player:
-    def __init__(self, x, y):
-        self.rect =pygame.Rect(x, y, 40, 20)
+    def __init__(self):
+        self.rect = pygame.Rect(0, 0, 40, 20)
         self.vel = 0
         self.gravity = 0.3
         self.thrust = -0.8
+
+    def set_position(self, x, y):
+        self.rect.x = x
+        self.rect.y = y
 
     def update(self, action: Action):
         if action == Action.PRESSED:
@@ -77,9 +77,9 @@ class Obstacle:
 
 
 class Environment:
-    def __init__(self, player, graphics_on=True, steps_before_truncation=4000):
-        self.player = player
+    def __init__(self, graphics_on=True, steps_before_truncation=4000):
         self.background_color = (30, 30, 30)
+        self.player = None
         self.obstacles = []
 
         self.terminated = False
@@ -90,16 +90,20 @@ class Environment:
 
         self.noise = None
         self.noise_size = 1024
+        self.total_level = 0
         self.reset()
 
     def reset(self):
         self.noise = generate_perlin_noise_2d((self.noise_size, self.noise_size), (4, 2), tileable=(True, True))
-        self.player = Player(PLAYER_X,PLAYER_Y)
         self.terminated = False
         self.truncated = False
         self.steps_since_episode = 0
         self.obstacles = []
-        self.generate_random_obstacles()
+        self.generate_random_obstacles(keep_middle_clear = True, n=50)
+        self.total_level = 0
+
+        self.player = Player()
+        self.player.set_position(300, SCREEN_HEIGHT / 2)
         return self.get_state()
 
     def step(self, action):
@@ -154,31 +158,33 @@ class Environment:
         if self.graphics_on:
             pygame.quit()
 
-    def generate_random_obstacles(self, n=20, offset_x = 0):
-        offset_obstacles_y = 0
+    def generate_random_obstacles(self, n=20, offset_x = 0, keep_middle_clear = False):
         last_x = None
         last_y = None
 
         total_x = 0
         if len(self.obstacles) > 0:
+            self.total_level += 1
             total_x = self.obstacles[-2].total_x - OBSTACLE_WIDTH # -2 because the last is the bottom one and the second last is the top one
             last_x = self.obstacles[-2].point2.x
             last_y = self.obstacles[-2].point2.y
 
         for i in range(n):
+            offset_obstacles_y = np.interp(i, [0, n], [150, 5]) if keep_middle_clear else 5
+            obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
             total_x = (total_x + OBSTACLE_WIDTH) % self.noise_size
             x = offset_x + i * OBSTACLE_WIDTH
-            y = np.interp(self.noise[total_x, total_x], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - OBSTACLE_GAP])
+            y = np.interp(self.noise[total_x, total_x], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - obstacle_gap])
             if last_x is not None and last_y is not None:
-                self.add_obstacle(last_x, last_y, x, y, total_x)
+                obstacle = Obstacle(Vector2(last_x, last_y), Vector2(x, y), ObstacleType.TOP, total_x)
+                self.obstacles.append(obstacle)
+                obstacle = Obstacle(Vector2(last_x, last_y + obstacle_gap), Vector2(x, y + obstacle_gap), ObstacleType.BOTTOM,
+                                    total_x)
+                self.obstacles.append(obstacle)
             last_x = x
             last_y = y
-
-    def add_obstacle(self, x1, y1, x2, y2, total_x):
-        obstacle = Obstacle(Vector2(x1, y1), Vector2(x2, y2), ObstacleType.TOP, total_x)
-        self.obstacles.append(obstacle)
-        obstacle = Obstacle(Vector2(x1, y1 + OBSTACLE_GAP), Vector2(x2, y2 + OBSTACLE_GAP), ObstacleType.BOTTOM, total_x)
-        self.obstacles.append(obstacle)
+    def get_obstacle_size(self, level):
+        return max(-10 * level + 300, 150)
 
     def move_obstacles(self, speed = 5):
         for obstacle in self.obstacles:
@@ -188,8 +194,7 @@ class Environment:
 def train_rocket():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    player = Player(PLAYER_X, PLAYER_Y)
-    env = Environment(player,graphics_on=not False)
+    env = Environment(graphics_on=not False)
 
     running = True
     state = env.reset()
@@ -214,10 +219,9 @@ def train_rocket():
                 if event.type == pygame.QUIT:
                     running = False
 
-            '''
-            keys = pygame.key.get_pressed()
-            action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
-            '''
+            # keys = pygame.key.get_pressed()
+            # action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
+
             if np.random.rand() < epsilon:
                 action = np.random.choice([Action.PRESSED, Action.RELEASED])  # Explore
             else:
