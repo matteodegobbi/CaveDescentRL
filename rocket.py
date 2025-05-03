@@ -334,8 +334,6 @@ class Network:
 
         self.initial_time = round(time.time())
 
-        print(self.count_trainable_parameters())
-
     # Define a training method. Generally you have two possibilities
     # - pass new q_values of all actions for a given state; all but one are the same as before
     # - pass only one new q_value for a given state, and include the index of the action to which
@@ -516,9 +514,8 @@ def run_rocket():
             q_values = network.predict(state[np.newaxis])[0]
             action = np.argmax(q_values)
 
-            next_state, reward, terminated, truncated = env.step(action)
+            state, reward, terminated, truncated = env.step(action)
             done = terminated or truncated
-
 
             if env.graphics_on:
                 env.draw(screen)
