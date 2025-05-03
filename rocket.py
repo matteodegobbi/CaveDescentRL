@@ -1,20 +1,28 @@
-
-
-
 import pygame
 import numpy as np
+from enum import Enum
+PLAYER_X = 300
+PLAYER_Y = 400
+class Action(Enum):
+    RELEASED = 0
+    PRESSED = 1
+class Rectangle:
+    def __init__(self, x, y, width, height):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
 
-# --- Player class ---
 class Player:
     def __init__(self, x, y):
-        self.rect = pygame.Rect(x, y, 40, 20)
+        self.rect =pygame.Rect(x, y, 40, 20)
         self.vel = 0
-        self.gravity = 0.5
-        self.thrust = -10
+        self.gravity = 0.3
+        self.thrust = -0.8
 
-    def update(self, action):
-        if action == 1:
-            self.vel = self.thrust
+    def update(self, action: Action):
+        if action == Action.PRESSED:
+            self.vel += self.thrust
         self.vel += self.gravity
         self.rect.y += int(self.vel)
 
@@ -30,7 +38,6 @@ class Player:
         pygame.draw.rect(screen, (0, 255, 0), self.rect)  # green rocket
 
 
-# --- Obstacle class ---
 class Obstacle:
     def __init__(self, x, y, width, height):
         self.rect = pygame.Rect(x, y, width, height)
@@ -41,23 +48,19 @@ class Obstacle:
 
 # --- Environment class ---
 class Environment:
-    def __init__(self, screen, player, obstacles):
-        self.screen = screen
+    def __init__(self, player, obstacles):
         self.player = player
         self.obstacles = obstacles
         self.background_color = (30, 30, 30)
-        self.clock = pygame.time.Clock()
         self.done = False
 
     def reset(self):
-        self.player = Player(100, 300)
+        self.player = Player(PLAYER_X,PLAYER_Y)
         self.done = False
         return self.get_state()
 
     def step(self, action):
         self.player.update(action)
-
-        # Collision detection
         for obstacle in self.obstacles:
             if self.player.rect.colliderect(obstacle.rect):
                 self.done = True
@@ -71,26 +74,30 @@ class Environment:
             self.player.vel / 10.0
         ], dtype=np.float32)
 
-    def draw(self):
-        self.screen.fill(self.background_color)
-        self.player.draw(self.screen)
+    def draw(self,screen):
+        assert graphics_on
+        screen.fill(self.background_color)
+        self.player.draw(screen)
         for obstacle in self.obstacles:
-            obstacle.draw(self.screen)
+            obstacle.draw(screen)
         pygame.display.flip()
 
     def close(self):
-        pygame.quit()
+        if graphics_on:
+            pygame.quit()
 
 
-# --- Main loop ---
+graphics_on = True
 pygame.init()
 screen = pygame.display.set_mode((800, 600))
-player = Player(100, 300)
-obstacles = []  # Add obstacles later if needed
-env = Environment(screen, player, obstacles)
+player = Player(PLAYER_X, PLAYER_Y)
+obstacles = [Obstacle(0,0,800,100),Obstacle(0,500,800,100)]  # Add obstacles later if needed
+env = Environment(player, obstacles)
 
 running = True
 state = env.reset()
+
+clock = pygame.time.Clock()
 
 while running:
     for event in pygame.event.get():
@@ -98,14 +105,17 @@ while running:
             running = False
 
     keys = pygame.key.get_pressed()
-    action = 1 if keys[pygame.K_SPACE] else 0
+    action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
 
     state, reward, done, _ = env.step(action)
-    env.draw()
-    env.clock.tick(60)
+    print(state, reward, done)
+    if graphics_on:
+        env.draw(screen)
+        clock.tick(60)
 
     if done:
-        pygame.time.delay(500)
+        if graphics_on:
+            pygame.time.delay(500)
         state = env.reset()
 
 env.close()
