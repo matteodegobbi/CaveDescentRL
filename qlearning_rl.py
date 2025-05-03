@@ -17,6 +17,13 @@ class RandomAgent:
         if not available:
             return None
         return random.choice(available)
+
+    def learn(self, state, action, next_state, reward, done):
+        pass
+    def save(self, path):
+        pass
+    def load(self, path):
+        pass
         
 class HumanAgent:
     def get_action(self, env, state):
@@ -183,7 +190,7 @@ class Environment:
 
 # --- Training Function (Self-Play) ---
 def train_self_play(episodes=500000, # Increased episodes for better convergence
-                    epsilon_start=1.0,  # Start with full exploration
+                    epsilon_start=0.3,  # Start with full exploration
                     epsilon_end=0.01,   # Keep a small amount of exploration
                     epsilon_decay=0.99999, # Slower decay rate
                     alpha=0.01,        # Learning rate
@@ -195,6 +202,7 @@ def train_self_play(episodes=500000, # Increased episodes for better convergence
     # Create two Q-learning agents
     agent_0 = QLearnAgent(epsilon=epsilon_start, alpha=alpha, gamma=gamma)
     agent_1 = QLearnAgent(epsilon=epsilon_start, alpha=alpha, gamma=gamma)
+    #agent_1 = RandomAgent()
     agents = [agent_0, agent_1]
 
     # Try loading existing Q-tables
@@ -236,28 +244,19 @@ def train_self_play(episodes=500000, # Increased episodes for better convergence
                 done = True
                 break
 
-            # --- Learning Step for the Opponent (from their previous move) ---
-            # If the opponent made a move previously in this episode, they learn now.
-            # Their previous action led to the current 'state'. Reward is 0 as game wasn't over then.
-
             opponent_idx = 1 - current_player_idx
             if last_transition[opponent_idx] is not None:
                 prev_state_opp, prev_action_opp = last_transition[opponent_idx]
                 agents[opponent_idx].learn(prev_state_opp, prev_action_opp, state, reward=0, done=False)
 
-            # Store current state and action *before* stepping the environment
             last_transition[current_player_idx] = (state, action)
-            last_transition[opponent_idx] = None # Clear opponent's transition until they move again
+            last_transition[opponent_idx] = None
 
             next_state, reward, done = env.step(action) # reward for current
 
-            # --- Learning Step upon Game End ---
             if done:
-                # The player who just moved (current_agent) learns from the outcome
                 current_agent.learn(state, action, next_state, reward, done=True)
 
-                # The opponent also learns from their previous action (if it exists),
-                # It obtains the negative reward wrt the current_agent
                 if last_transition[opponent_idx] is not None:
                      prev_state_opp, prev_action_opp = last_transition[opponent_idx]
                      opponent_reward = -reward
@@ -273,7 +272,6 @@ def train_self_play(episodes=500000, # Increased episodes for better convergence
         assert episode_winner != -1
         episode_outcomes.append(episode_winner)
 
-        # Decay epsilon after each episode
         current_epsilon = max(epsilon_end, current_epsilon * epsilon_decay)
         agents[0].epsilon = current_epsilon
         agents[1].epsilon = current_epsilon
