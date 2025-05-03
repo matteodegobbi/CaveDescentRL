@@ -1,11 +1,23 @@
 import pygame
 import numpy as np
 from enum import Enum
+
+from pygame import Vector2
+
 PLAYER_X = 300
 PLAYER_Y = 400
+
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+
 class Action(Enum):
     RELEASED = 0
     PRESSED = 1
+
+class ObstacleType(Enum):
+    TOP = 0
+    BOTTOM = 1
+
 class Rectangle:
     def __init__(self, x, y, width, height):
         self.x = x
@@ -39,11 +51,22 @@ class Player:
 
 
 class Obstacle:
-    def __init__(self, x, y, width, height):
-        self.rect = pygame.Rect(x, y, width, height)
+    def __init__(self, point1: Vector2, point2: Vector2, type: ObstacleType):
+        self.point1 = point1
+        self.point2 = point2
+        self.type = type
+
 
     def draw(self, screen):
-        pygame.draw.rect(screen, (255, 0, 0), self.rect)  # red obstacle
+        if self.type == ObstacleType.TOP:
+            points = [self.point1, self.point2, Vector2(self.point2.x, 0), Vector2(self.point1.x, 0)]
+            pygame.draw.polygon(screen, (255, 0, 0), points)
+        else:
+            points = [self.point1, self.point2, Vector2(self.point2.x, SCREEN_HEIGHT), Vector2(self.point1.x, SCREEN_HEIGHT)]
+            pygame.draw.polygon(screen, (255, 0, 0), points)
+
+    def collides_with_rect(self, rect):
+        return rect.clipline(self.point1, self.point2)
 
 
 # --- Environment class ---
@@ -62,7 +85,7 @@ class Environment:
     def step(self, action):
         self.player.update(action)
         for obstacle in self.obstacles:
-            if self.player.rect.colliderect(obstacle.rect):
+            if obstacle.collides_with_rect(self.player.rect):
                 self.done = True
 
         reward = 1 if not self.done else -100
@@ -70,7 +93,7 @@ class Environment:
 
     def get_state(self):
         return np.array([
-            self.player.rect.y / 600,
+            self.player.rect.y / SCREEN_HEIGHT,
             self.player.vel / 10.0
         ], dtype=np.float32)
 
@@ -89,9 +112,12 @@ class Environment:
 
 graphics_on = True
 pygame.init()
-screen = pygame.display.set_mode((800, 600))
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 player = Player(PLAYER_X, PLAYER_Y)
-obstacles = [Obstacle(0,0,800,100),Obstacle(0,500,800,100)]  # Add obstacles later if needed
+obstacles = [
+    Obstacle(Vector2(0, 0), Vector2(SCREEN_WIDTH, SCREEN_HEIGHT/2), ObstacleType.TOP),
+    Obstacle(Vector2(0, SCREEN_HEIGHT), Vector2(SCREEN_WIDTH, SCREEN_HEIGHT/2), ObstacleType.BOTTOM),
+]  # Add obstacles later if needed
 env = Environment(player, obstacles)
 
 running = True
