@@ -418,7 +418,7 @@ def train_rocket(render = False):
 
             # Choose an action.
             q_values = network.predict(state[np.newaxis])[0]
-            action = np.argmax(q_values) #if np.random.random() > epsilon else np.random.choice([Action.PRESSED, Action.RELEASED])
+            action = np.argmax(q_values) if np.random.random() > epsilon else np.random.choice([Action.PRESSED, Action.RELEASED])
 
             next_state, reward, terminated, truncated = env.step(action)
             done = terminated or truncated
