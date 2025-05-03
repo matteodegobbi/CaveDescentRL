@@ -100,7 +100,7 @@ class Environment:
         self.truncated = False
         self.steps_since_episode = 0
         self.obstacles = []
-        self.generate_random_obstacles(keep_middle_clear = True, n=20)
+        self.generate_random_obstacles(keep_middle_clear = True, n=50)
         self.total_level = 0
 
         self.player = Player()
@@ -220,6 +220,8 @@ class Environment:
 
             curr_dist_right = self.ray_segment_intersection(self.player.rect.center,0, obstacle.point1,
                                                                      obstacle.point2)
+            # curr_dist_right = self.horizontal_ray_segment_intersection_right(self.player.rect.center, obstacle.point1,
+            #                                                                  obstacle.point2)
             if curr_dist_down != None and curr_dist_down < min_dist_down:
                 min_dist_down = curr_dist_down
 
@@ -292,8 +294,9 @@ class Environment:
             last_y = self.obstacles[-2].point2.y
 
         for i in range(n):
-            offset_obstacles_y = np.interp(i, [0, n], [75, 5]) if keep_middle_clear else 5
-            obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
+            offset_obstacles_y = np.interp(i, [0, n], [150, 5]) if keep_middle_clear else 5
+            # obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
+            obstacle_gap = 250
             total_x = (total_x + OBSTACLE_WIDTH) % self.noise_size
             x = offset_x + i * OBSTACLE_WIDTH
             y = np.interp(self.noise[total_x, total_x], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - obstacle_gap])
@@ -305,8 +308,8 @@ class Environment:
                 self.obstacles.append(obstacle)
             last_x = x
             last_y = y
-    def get_obstacle_size(self, level):
-        return max(-10 * level + 250, 150)
+    # def get_obstacle_size(self, level):
+    #     return max(-10 * level + 300, 150)
 
     def move_obstacles(self, speed = 5):
         for obstacle in self.obstacles:
@@ -386,7 +389,7 @@ def train_rocket():
 def run_rocket():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    env = Environment(graphics_on=not True)
+    env = Environment(graphics_on=True)
 
     running = True
     state = env.reset()
@@ -410,7 +413,9 @@ def run_rocket():
             action = np.argmax(Q[state])
 
             next_state, reward, terminated,truncated = env.step(action)
-            done = terminated
+            done = terminated or truncated
+            if (truncated):
+                print("TRUNCATED ", env.steps_since_episode)
             reward_sum += reward
             if env.graphics_on:
                 env.draw(screen)
