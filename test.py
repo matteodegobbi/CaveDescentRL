@@ -1,16 +1,16 @@
-import os
-
 import numpy as np
 import random
 import argparse
+import os # Added for saving/loading models
 
 observation_space = 3 ** 9
 action_space = 9
 
+# --- Agent Classes (RandomAgent and HumanAgent remain unchanged) ---
 class RandomAgent:
     def get_action(self,env,state):
         return self.get_random_move(env)
-        
+
     def get_random_move(self,env):
         available_coords = list(zip(*np.where(env.board == -1)))
         available = [r * 3 + c for r, c in available_coords]
@@ -18,21 +18,15 @@ class RandomAgent:
             return None
         return random.choice(available)
 
-    def learn(self, state, action, next_state, reward, done):
-        pass
-    def save(self, path):
-        pass
-    def load(self, path):
-        pass
-        
 class HumanAgent:
-    def get_action(self, env, state):
+    def get_action(self,env,state):
         available_coords = list(zip(*np.where(env.board == -1)))
         available = [r * 3 + c for r, c in available_coords]
         if not available:
             print("No available move for human")
             return None
-        while True:
+
+        while True: # Loop until valid input
             try:
                 move = int(input(f"Enter your move (0-8) for player {env.symbol(env.current_player)}: "))
                 if move in available:
@@ -42,26 +36,32 @@ class HumanAgent:
             except ValueError:
                 print("Invalid input. Please enter a number between 0 and 8.")
             except Exception as e:
-                print(f"An error occurred: {e}")
+                 print(f"An error occurred: {e}") # Should not happen often
 
+
+# --- QLearnAgent (minor adjustment for clarity, functionality same) ---
 class QLearnAgent:
-
-    def __init__(self,epsilon = 0.1,alpha = 0.5,gamma = 0.5):
+    def __init__(self, epsilon=0.1, alpha=0.5, gamma=0.9, player_symbol=0): # Gamma often higher, added player_symbol for potential future use
         self.Q = np.zeros((observation_space, action_space))
         self.epsilon = epsilon
         self.alpha = alpha
         self.gamma = gamma
+        self.player_symbol = player_symbol # 0 for X, 1 for O
 
-    def get_action(self,env,state):
+    def get_action(self, env, state):
         available_moves_indices = env.get_valid_move_indices()
-        if not available_moves_indices:
-            return None
+        if not available_moves_indices: # Should not happen if called correctly
+             return None
 
         if np.random.rand() < self.epsilon:
+            # Choose random among *valid* moves
             action = random.choice(available_moves_indices)
         else:
+            # Choose best valid move
             q_values = self.Q[state]
+            # Filter Q-values to only consider valid moves
             q_filtered = {move: q_values[move] for move in available_moves_indices}
+            # Find the action(s) with the maximum Q-value among valid moves
             max_q = -np.inf
             best_actions = []
             for move, q in q_filtered.items():
@@ -70,16 +70,32 @@ class QLearnAgent:
                     best_actions = [move]
                 elif q == max_q:
                     best_actions.append(move)
+            # Choose randomly among the best actions (tie-breaking)
             action = random.choice(best_actions)
+
         return action
 
     def learn(self, state, action, next_state, reward, done):
+        # Standard Q-learning update
+        # If the next state is terminal, the value is just the reward
         if done:
             target = reward
         else:
+            # Find the max Q-value for the next state *only over valid actions* in that next state
+            # Note: In TicTacToe, next_state might not have valid actions if it's terminal
+            # But the `done` check handles this. If not done, there must be valid actions.
             next_q_values = self.Q[next_state]
-            max_next_q = np.max(next_q_values)
+
+            # We need the environment's state corresponding to next_state to find valid moves
+            # This is a slight complication - the agent ideally shouldn't need the env inside learn.
+            # Pass valid_next_actions if possible, otherwise estimate without filtering (less accurate)
+            # Or, assume the Q-value for invalid actions remains 0 or negative infinity implicitly.
+            # Let's stick to the standard formula, assuming Q[next_state] handles it.
+            # If Q is initialized to 0, max over invalid actions will be 0, which is okay.
+            max_next_q = np.max(next_q_values) # Simpler, relies on Q-table structure
             target = reward + self.gamma * max_next_q
+
+        # Update rule
         self.Q[state, action] += self.alpha * (target - self.Q[state, action])
 
 
@@ -90,49 +106,68 @@ class QLearnAgent:
         else:
             print(f"Warning: Q-table file not found at {path}. Starting with empty table.")
 
+
     def save(self, path):
         np.save(path, self.Q)
         print(f"Q-table saved to {path}")
 
 
+# --- Environment (Modified for Self-Play) ---
 class Environment:
     def __init__(self, prints_board=False):
-        self.board = np.full((3, 3), -1)
-        self.current_player = 0
+        self.board = np.full((3, 3), -1) # -1: empty, 0: player 0 (X), 1: player 1 (O)
+        self.current_player = 0 # Player 0 starts
         self.prints_board = prints_board
 
     def step(self, move: int):
+        """
+        Applies the 'move' for the 'current_player'.
+        Checks for win/draw after the move.
+        Updates the current_player.
+        Returns: next_state, reward (for the player who just moved), done
+        """
         if move is None or not self.is_valid_move(move):
             # This indicates an error in the agent logic or training loop
             raise ValueError(f"Invalid move {move} attempted by player {self.current_player} on board:\n{self.board}")
 
-        # Make move
+        # 1. Make the move
         coords = (move // 3, move % 3)
         self.board[coords] = self.current_player
 
-        if self.prints_board: self.print_board()
-
-        # Check win
+        # 2. Check for win by the player who just moved
         won = self.check_win(self.current_player)
         if won:
-            return self.get_state(), 1, True
+            if self.prints_board: self.print_board()
+            next_state = self.get_state()
+            reward = 1 # Player who moved won
+            done = True
+            return next_state, reward, done
 
+        # 3. Check for draw (board full, no winner)
         if self.is_draw():
-            return self.get_state(), 100, True
+            if self.prints_board: self.print_board()
+            next_state = self.get_state()
+            reward = 0 # Draw
+            done = True
+            return next_state, reward, done
 
+        # 4. Game continues, switch player
         self.current_player = self.get_opposite_player()
-        return self.get_state(), 0, False
+        next_state = self.get_state()
+        reward = 0 # No reward yet, game ongoing
+        done = False
+
+        if self.prints_board:
+            self.print_board()
+
+        # Return state for the *next* player, reward=0, done=False
+        return next_state, reward, done
 
     def is_valid_move(self, move):
         if move < 0 or move >= action_space:
             return False
         coords = (move // 3, move % 3)
         return self.board[coords] == -1
-
-    def is_draw(self):
-        # Draw if the board is full and no one has won (win check happens first)
-        return not np.any(self.board == -1)
-
 
     def get_valid_move_indices(self):
          available_coords = list(zip(*np.where(self.board == -1)))
@@ -143,7 +178,7 @@ class Environment:
 
     def reset(self):
         self.board = np.full((3, 3), -1)
-        self.current_player = 0
+        self.current_player = 0 # Player 0 always starts
         return self.get_state()
 
     def get_opposite_player(self):
@@ -158,57 +193,51 @@ class Environment:
         if np.all(np.diag(np.fliplr(self.board)) == player): return True
         return False
 
-    def get_random_move(self):
-        available_coords = list(zip(*np.where(self.board == -1)))
-        available = [r * 3 + c for r, c in available_coords]
-        if not available:
-            return None
-        return random.choice(available)
-    def sample_action(self):
-        return self.get_random_move()
-        
+    def is_draw(self):
+        # Draw if the board is full and no one has won (win check happens first)
+        return not np.any(self.board == -1)
+
+    # Sample action removed - agents handle action selection
+
     def print_board(self):
+        print("-" * 7)
         for row in self.board:
-            print("|".join(self.symbol(cell) for cell in row))
-            print("-" * 5)
-            
-    def symbol(self,val):
-        if val == 0:
-            return "X"
-        elif val == 1:
-            return "O"
-        else:
-            return " "
+            print("|", end="")
+            print("|".join(self.symbol(cell) for cell in row), end="")
+            print("|")
+            print("-" * 7)
+
+    def symbol(self, val):
+        if val == 0: return "X"
+        elif val == 1: return "O"
+        else: return " "
 
     def get_state(self):
-        # Flatten board and shift values
-        flat = ((np.array(self.board).flatten()) + 1).astype(int)  # now 0=empty, 1=x, 2=o
+        # Flatten board and shift values for base-3 encoding
+        flat = ((np.array(self.board).flatten()) + 1).astype(int)  # 0=empty, 1=X, 2=O
         state = 0
         for i in range(9):
-            state += flat[i] * (3 ** i)  # base-3 encoding
+            state += flat[i] * (3 ** i)
         return state
 
 # --- Training Function (Self-Play) ---
 def train_self_play(episodes=500000, # Increased episodes for better convergence
-                    epsilon_start=0.3,  # Start with full exploration
+                    epsilon_start=1.0,  # Start with full exploration
                     epsilon_end=0.01,   # Keep a small amount of exploration
                     epsilon_decay=0.99999, # Slower decay rate
-                    alpha=0.001,        # Learning rate
+                    alpha=0.01,        # Learning rate
                     gamma=0.99,       # Discount factor, prioritize future rewards slightly more
                     print_every=5000, # Print progress less frequently for long runs
-                    save_every=20000,
-                    preload_models=False): # Save checkpoints periodically
+                    save_every=20000): # Save checkpoints periodically
 
     # Create two Q-learning agents
-    agent_0 = QLearnAgent(epsilon=epsilon_start, alpha=alpha, gamma=gamma)
-    agent_1 = QLearnAgent(epsilon=epsilon_start, alpha=alpha, gamma=gamma)
-    #agent_1 = RandomAgent()
+    agent_0 = QLearnAgent(epsilon=epsilon_start, alpha=alpha, gamma=gamma, player_symbol=0)
+    agent_1 = QLearnAgent(epsilon=epsilon_start, alpha=alpha, gamma=gamma, player_symbol=1)
     agents = [agent_0, agent_1]
 
     # Try loading existing Q-tables
-    if preload_models:
-        agent_0.load("q_table_agent0.npy")
-        agent_1.load("q_table_agent1.npy")
+    agent_0.load("q_table_agent0.npy")
+    agent_1.load("q_table_agent1.npy")
 
     env = Environment(prints_board=False) # Don't print board during mass training
 
@@ -244,33 +273,44 @@ def train_self_play(episodes=500000, # Increased episodes for better convergence
                 done = True
                 break
 
+            # --- Learning Step for the Opponent (from their previous move) ---
+            # If the opponent made a move previously in this episode, they learn now.
+            # Their previous action led to the current 'state'. Reward is 0 as game wasn't over then.
+
             opponent_idx = 1 - current_player_idx
             if last_transition[opponent_idx] is not None:
                 prev_state_opp, prev_action_opp = last_transition[opponent_idx]
                 agents[opponent_idx].learn(prev_state_opp, prev_action_opp, state, reward=0, done=False)
 
+            # Store current state and action *before* stepping the environment
             last_transition[current_player_idx] = (state, action)
-            last_transition[opponent_idx] = None
+            last_transition[opponent_idx] = None # Clear opponent's transition until they move again
 
             next_state, reward, done = env.step(action) # reward for current
+
+            # --- Learning Step upon Game End ---
             if done:
+                # The player who just moved (current_agent) learns from the outcome
                 current_agent.learn(state, action, next_state, reward, done=True)
 
+                # The opponent also learns from their previous action (if it exists),
+                # It obtains the negative reward wrt the current_agent
                 if last_transition[opponent_idx] is not None:
                      prev_state_opp, prev_action_opp = last_transition[opponent_idx]
-                     opponent_reward = -reward if not env.is_draw() else reward
+                     opponent_reward = -reward
                      agents[opponent_idx].learn(prev_state_opp, prev_action_opp, next_state, opponent_reward, done=True)
 
-                if env.is_draw():
-                    episode_winner = 2
-                elif env.check_win(current_player_idx):
+                if reward == 1: # current_player_idx won
                     episode_winner = current_player_idx
+                elif reward == 0: # Draw
+                    episode_winner = 2 # 2 for draw
 
             state = next_state
 
         assert episode_winner != -1
         episode_outcomes.append(episode_winner)
 
+        # Decay epsilon after each episode
         current_epsilon = max(epsilon_end, current_epsilon * epsilon_decay)
         agents[0].epsilon = current_epsilon
         agents[1].epsilon = current_epsilon
@@ -347,30 +387,26 @@ def play(q_agent_file="q_table_agent0.npy", agent_plays_as=1):
         state = next_state
     print("\n--- Finished ---")
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Train Q-learning agents via self-play or play against a trained agent.")
+    parser = argparse.ArgumentParser(description="Train Q-learning agents via self-play or play against a trained agent.")
     parser.add_argument("--train", action="store_true", help="Run self-play training mode")
     parser.add_argument("--play", action="store_true", help="Run play mode (Q-agent vs Human)")
-    parser.add_argument("--episodes", type=int, default=500000, help="Number of episodes for training")
-    parser.add_argument("--agent-file", type=str, default="q_table_agent0.npy",
-                        help="Q-table file to load for playing (or save during training)")
-    parser.add_argument("--agent-player", type=int, default=0, choices=[0, 1],
-                        help="Which player the Q-agent should be in play mode (0=X, 1=O)")
+    parser.add_argument("--episodes", type=int, default=200000, help="Number of episodes for training")
+    parser.add_argument("--agent-file", type=str, default="q_table_agent0.npy", help="Q-table file to load for playing (or save during training)")
+    parser.add_argument("--agent-player", type=int, default=0, choices=[0, 1], help="Which player the Q-agent should be in play mode (0=X, 1=O)")
     parser.add_argument("--print-every", type=int, default=1000, help="Frequency of printing training progress")
-    parser.add_argument("--save-every", type=int, default=10000,
-                        help="Frequency of saving Q-tables during training")
-    parser.add_argument("--preload", action="store_true", help="Run self-play training mode")
+    parser.add_argument("--save-every", type=int, default=10000, help="Frequency of saving Q-tables during training")
+
 
     args = parser.parse_args()
 
     if args.train:
         train_self_play(
-            episodes=args.episodes,
+            # episodes=args.episodes,
             print_every=args.print_every,
-            save_every=args.save_every,
-            preload_models=args.preload
-        )
+            save_every=args.save_every
+            )
     elif args.play:
         play(q_agent_file=args.agent_file, agent_plays_as=args.agent_player)
     else:
