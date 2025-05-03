@@ -1,8 +1,9 @@
 import numpy as np
 import random
 import argparse
+
 class RandomAgent:
-    def move(self,env):
+    def get_action(self,env):
         return self.get_random_move(env)
         
     def get_random_move(self,env):
@@ -13,7 +14,7 @@ class RandomAgent:
         return random.choice(available)
         
 class HumanAgent:
-    def move(self,env):
+    def get_action(self,env):
         available_coords = list(zip(*np.where(env.board == -1)))
         available = [r * 3 + c for r, c in available_coords]
         if not available:
@@ -21,15 +22,42 @@ class HumanAgent:
             return None
         return int(input())
 
-        
+class QLearnAgent:
+
+    def __init__(self,env,epsilon = 0.1,alpha = 0.5,gamma = 0.5):
+        self.Q = np.zeros((env.observation_space, env.action_space))
+        self.epsilon = epsilon
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def get_action(self,env,state):
+        if np.random.rand() < self.epsilon:
+            action = env.sample_action()
+        else:
+            available_moves = env.get_valid_moves()
+            q_values = self.Q[state]
+            q_filtered = np.where(available_moves > 0, q_values, -np.inf)
+            action = np.argmax(q_filtered)
+        return action
+
+    def learn(self, state, action, next_state, reward):
+        self.Q[state, action] += self.alpha * (reward + self.gamma * np.max(self.Q[next_state]) - self.Q[state, action])
+
+    def load(self, path):
+        self.Q = np.load(path)
+
+    def save(self, path):
+        np.save(path, self.Q)
+
+
 class Environment:
-    def __init__(self,agent2,prints_board=False):
+    def __init__(self, agent2, prints_board=False):
         self.board = np.full((3, 3), -1)
         self.current_player = 0
         self.observation_space = 3 ** 9
         self.action_space = 9
-        self.agent2 = agent2
         self.prints_board = prints_board
+        self.agent2 = agent2
     
     def step(self, move: int):
         self.make_move(move, self.current_player)
@@ -41,11 +69,11 @@ class Environment:
         if self.prints_board:
             self.print_board()
         self.current_player = self.get_opposite_player()
-        other_move = self.agent2.move(self)
-        if other_move is None:
+        other_action = self.agent2.get_action(self)
+        if other_action is None:
             # Draw
             return self.get_state(), 0, True, False, {}
-        self.make_move(other_move, self.current_player)
+        self.make_move(other_action, self.current_player)
 
         if self.is_done():
             # The other player won
@@ -122,17 +150,12 @@ class Environment:
             state += flat[i] * (3 ** i)  # base-3 encoding
         return state
 def train_q_learn():
-    
-    env = Environment(RandomAgent())
-    state = env.reset()
-    # np.random.seed()
-    Q = np.zeros((env.observation_space, env.action_space))
-    
+
+    agent2 = RandomAgent()
+    env = Environment(agent2)
+
+    agent1 = QLearnAgent(env)
     training = True
-    epsilon = 0.1
-    alpha = 0.5
-    gamma = 0.5
-    done = False
     
     rewards = []
     episodes_count = 0
@@ -144,19 +167,13 @@ def train_q_learn():
         done = False
         reward_sum = 0
         while not done:
-            if np.random.rand() < epsilon:
-                action = env.sample_action()
-            else:
-                available_moves = env.get_valid_moves()
-                q_values = Q[state]
-                q_filtered = np.where(available_moves > 0, q_values, -np.inf)
-                action = np.argmax(q_filtered)
-    
+            action = agent1.get_action(env, state)
+
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
-    
+
             # Update the action-value estimates
-            Q[state, action] += alpha * (reward + gamma * np.max(Q[next_state]) - Q[state, action])
+            agent1.learn(state, action, next_state, reward)
     
             state = next_state
             reward_sum += reward
@@ -174,25 +191,21 @@ def train_q_learn():
     
         if episodes_count > 100000:
             break
-    np.save("q_table.npy", Q)
-    
+    agent1.save("q_table.npy")
+
 def play():
-    Q = np.load("q_table.npy")
-    env = Environment(HumanAgent(),True)
+    agent2 = HumanAgent()
+    env = Environment(agent2,True)
+    agent1 = QLearnAgent(env, epsilon = 0)
+    agent1.load("q_table.npy")
+
     state = env.reset()
     done = False
     while not done:
-        available_moves = env.get_valid_moves()
-        q_values = Q[state]
-        q_filtered = np.where(available_moves > 0, q_values, -np.inf)
-        print(q_filtered)
-        action = np.argmax(q_filtered)
+        action = agent1.get_action(env, state)
 
         next_state, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
-
-        # Update the action-value estimates
-        #Q[state, action] += alpha * (reward + gamma * np.max(Q[next_state]) - Q[state, action])
 
         state = next_state
     print("finished game")
