@@ -28,19 +28,13 @@ class ObstacleType(Enum):
     TOP = 0
     BOTTOM = 1
 
-class Rectangle:
-    def __init__(self, x, y, width, height):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
 class Player:
     def __init__(self):
-        self.rect = pygame.Rect(0, 0, 40, 20)
+        self.rect = pygame.Rect(0, 0, 58, 18)
         self.vel = 0
         self.gravity = 0.3
         self.thrust = -0.8
+        self.image = None
 
     def set_position(self, x, y):
         self.rect.x = x
@@ -60,8 +54,12 @@ class Player:
             self.rect.bottom = SCREEN_HEIGHT
             self.vel = 0
 
+    def load_resources(self):
+        self.image = pygame.image.load("assets/jet.png")
+        self.image = pygame.transform.scale(self.image, (self.rect.width, self.rect.height))
+
     def draw(self, screen):
-        pygame.draw.rect(screen, (0, 255, 0), self.rect)  # green rocket
+        screen.blit(self.image, self.rect)
 
 
 class Obstacle:
@@ -83,6 +81,12 @@ class Obstacle:
 
     def collides_with_rect(self, rect):
         return rect.clipline(self.point1, self.point2)
+
+    def load_resources(self):
+        # self.image = pygame.image.load("assets/stone.jpg")
+        # self.image = pygame.transform.scale(self.image, (self.rect.width, self.rect.height))
+        # self.image = pygame.transform.flip(self.image, True, False)
+        pass
 
 
 class Environment:
@@ -113,6 +117,8 @@ class Environment:
 
         self.player = Player()
         self.player.set_position(300, SCREEN_HEIGHT / 2)
+        if self.graphics_on:
+            self.load_resources()
         return self.get_state()
 
     def step(self, action):
@@ -301,6 +307,10 @@ class Environment:
         for obstacle in self.obstacles:
             obstacle.point1.x -= speed
             obstacle.point2.x -= speed
+
+    def load_resources(self):
+        self.player.load_resources()
+
 class Network:
     # Use GPU if available.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
