@@ -105,7 +105,10 @@ class RocketEnvironment:
         self.noise_size = 1024
         self.total_level = 0
         self.reset()
+
         self.laser_hue = 0.0
+        self.laser_direction = 1
+        self.are_lasers_drawn = False
         #background
         self.background_scroll = 0
         self.scroll_speed = 2  # pixels per frame
@@ -311,7 +314,13 @@ class RocketEnvironment:
             x = -self.background_scroll + i * self.texture_width
             screen.blit(self.background_texture, (x, 0))
 
-        self.laser_hue = (self.laser_hue + 0.005) % 1.0
+        self.laser_hue += 0.002 * self.laser_direction
+        if self.laser_hue > 0.17:
+            self.laser_hue = 0.17
+            self.laser_direction = -1
+        elif self.laser_hue < 0.0:
+            self.laser_hue = 0.0
+            self.laser_direction = 1
         assert self.graphics_on
         min_distances = dict()
         min_distances[45]=(float('inf'),(None,None))
@@ -319,7 +328,9 @@ class RocketEnvironment:
         min_distances[0]=(float('inf'),(None,None))
         r, g, b = colorsys.hsv_to_rgb(self.laser_hue, 1.0, 1.0)
         laser_color = (int(r * 255), int(g * 255), int(b * 255))
-        pygame.draw.line(screen, laser_color, (self.player.rect.centerx,0), (self.player.rect.centerx,SCREEN_HEIGHT), 2)
+        laser_width = 2
+        if self.are_lasers_drawn:
+            pygame.draw.line(screen, laser_color, (self.player.rect.centerx,0), (self.player.rect.centerx,SCREEN_HEIGHT), laser_width)
         for obstacle in self.obstacles:
             # obstacle.draw(screen)
             #pygame.draw.circle(screen, laser_color, obstacle.point1, 10)
@@ -330,12 +341,14 @@ class RocketEnvironment:
                        min_distances[angle] = (dist,(x,y))
 
 
-        for angle in min_distances:
-            if min_distances[angle][1] != (None,None):
-                pygame.draw.line(screen, laser_color, self.player.rect.center, min_distances[angle][1], 2)
-        if min_distances[0][1] == (None,None):
-            pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), 2)
-        pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), 2)
+
+        if self.are_lasers_drawn:
+            for angle in min_distances:
+                if min_distances[angle][1] != (None,None):
+                    pygame.draw.line(screen, laser_color, self.player.rect.center, min_distances[angle][1], laser_width)
+            if min_distances[0][1] == (None,None):
+                pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), laser_width)
+            pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), laser_width)
 
         self.player.draw(screen)
 

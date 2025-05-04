@@ -218,6 +218,11 @@ def run_rocket():
                 if event.type == pygame.QUIT:
                     running = False
 
+                if event.type == pygame.KEYDOWN:
+                    print(event.key)
+                    if event.key == pygame.K_x:
+                        env.are_lasers_drawn = not env.are_lasers_drawn
+
             # Choose an action.
             q_values = network.predict(state[np.newaxis])[0]
             action = np.argmax(q_values)
@@ -247,6 +252,9 @@ def human_play_rocket():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_x:
+                        env.are_lasers_drawn = not env.are_lasers_drawn
 
             keys = pygame.key.get_pressed()
             action = Action.PRESSED if keys[pygame.K_SPACE] else Action.RELEASED
