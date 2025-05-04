@@ -7,6 +7,8 @@ from pygame import Vector2
 from perlin_numpy import generate_perlin_noise_2d
 import math
 
+from pygame.draw import polygon
+
 SCREEN_WIDTH = 900
 SCREEN_HEIGHT = 700
 
@@ -86,13 +88,6 @@ class Obstacle:
     def collides_with_rect(self, rect):
         return rect.clipline(self.point1, self.point2)
 
-    def load_resources(self):
-        # self.image = pygame.image.load("assets/stone.jpg")
-        # self.image = pygame.transform.scale(self.image, (self.rect.width, self.rect.height))
-        # self.image = pygame.transform.flip(self.image, True, False)
-        pass
-
-
 class RocketEnvironment:
     def __init__(self, graphics_on=True, steps_before_truncation=4000):
         self.background_color = (30, 30, 30)
@@ -110,6 +105,7 @@ class RocketEnvironment:
         self.total_level = 0
         self.reset()
         self.laser_hue = 0.0
+        self.tiles_offset = 0
 
     def reset(self):
         self.noise = generate_perlin_noise_2d((self.noise_size, self.noise_size), (4, 2), tileable=(True, True))
@@ -125,30 +121,6 @@ class RocketEnvironment:
         if self.graphics_on:
             self.load_resources()
         return self.get_state()
-
-    def step(self, action):
-        self.player.update(action)
-        for obstacle in self.obstacles:
-            if obstacle.collides_with_rect(self.player.rect):
-                self.terminated = True
-
-        # delete old obstacles
-        if self.obstacles[0].point1.x < -OBSTACLE_WIDTH:
-            self.obstacles.pop(0)
-
-        # generate new obstacles
-        RENDER_OFFSET = 100
-        if self.obstacles[-1].point1.x + OBSTACLE_WIDTH - RENDER_OFFSET < SCREEN_WIDTH:
-            self.generate_random_obstacles(offset_x = SCREEN_WIDTH + RENDER_OFFSET)
-
-        self.move_obstacles()
-
-        reward = 1 if not self.terminated else -100
-        if self.steps_since_episode > self.steps_before_truncation:
-            self.truncated = True
-
-        self.steps_since_episode += 1
-        return self.get_state(), reward, self.terminated, self.truncated
 
     def vertical_ray_segment_intersection_down(self,point, p_seg1, p_seg2):
         px,py = point
@@ -297,6 +269,30 @@ class RocketEnvironment:
 
         return (None,None),None
 
+    def step(self, action):
+        self.player.update(action)
+        for obstacle in self.obstacles:
+            if obstacle.collides_with_rect(self.player.rect):
+                self.terminated = True
+
+        # delete old obstacles
+        if self.obstacles[0].point1.x < -OBSTACLE_WIDTH:
+            self.obstacles.pop(0)
+
+        # generate new obstacles
+        RENDER_OFFSET = 100
+        if self.obstacles[-1].point1.x + OBSTACLE_WIDTH - RENDER_OFFSET < SCREEN_WIDTH:
+            self.generate_random_obstacles(offset_x = SCREEN_WIDTH + RENDER_OFFSET)
+
+        self.move_obstacles()
+
+        reward = 1 if not self.terminated else -100
+        if self.steps_since_episode > self.steps_before_truncation:
+            self.truncated = True
+
+        self.steps_since_episode += 1
+        return self.get_state(), reward, self.terminated, self.truncated
+
     def draw(self,screen):
         self.laser_hue = (self.laser_hue + 0.005) % 1.0
         assert self.graphics_on
@@ -309,7 +305,7 @@ class RocketEnvironment:
         laser_color = (int(r * 255), int(g * 255), int(b * 255))
         pygame.draw.line(screen, laser_color, (self.player.rect.centerx,0), (self.player.rect.centerx,SCREEN_HEIGHT), 2)
         for obstacle in self.obstacles:
-            obstacle.draw(screen)
+            # obstacle.draw(screen)
             #pygame.draw.circle(screen, laser_color, obstacle.point1, 10)
             for angle in min_distances:
                 (x, y),dist = self.line_to_draw(self.player.rect.center, angle, obstacle.point1, obstacle.point2)
@@ -326,8 +322,50 @@ class RocketEnvironment:
         pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), 2)
 
         self.player.draw(screen)
+
+        scroll_x = self.tiles_offset % self.image.get_width()
+        tiled_texture = self.create_tiled_surface(self.image, SCREEN_WIDTH + self.image.get_width(), SCREEN_HEIGHT)
+        texture_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        texture_surface.blit(tiled_texture, (-scroll_x, 0))
+
+        # Create a mask surface with alpha for transparency
+        mask_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        for obstacle_type in ObstacleType:
+            polygon_points = self.get_obstacle_polygon(obstacle_type)
+            pygame.draw.polygon(mask_surf, (255, 255, 255, 255), polygon_points)
+
+        # Create final surface with alpha
+        final_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        final_surface.blit(tiled_texture, (-scroll_x, 0))
+        final_surface.blit(mask_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        # Draw the masked texture to screen
+        screen.blit(final_surface, (0, 0))
+
         pygame.display.flip()
 
+    def get_obstacle_polygon(self, type):
+        obstacles_type = list(filter(lambda o: o.type == type, self.obstacles))
+        polygon_points = []
+
+        for obstacle in obstacles_type:
+            polygon_points.append(obstacle.point1)
+        polygon_points.append(self.obstacles[-1].point2)
+
+        other_value = 0 if type == ObstacleType.TOP else SCREEN_HEIGHT
+        for obstacle in reversed(obstacles_type):
+            polygon_points.append(Vector2(obstacle.point2.x, other_value))
+        polygon_points.append(Vector2(self.obstacles[0].point1.x, other_value))
+        return polygon_points
+
+    def create_tiled_surface(self, texture, width, height):
+        tiled = pygame.Surface((width, height))
+        tex_w, tex_h = texture.get_size()
+        for x in range(0, width, tex_w):
+            for y in range(0, height, tex_h):
+                tiled.blit(texture, (x, y))
+        return tiled
+    
     def close(self):
         if self.graphics_on:
             pygame.quit()
@@ -364,6 +402,9 @@ class RocketEnvironment:
         for obstacle in self.obstacles:
             obstacle.point1.x -= speed
             obstacle.point2.x -= speed
+        self.tiles_offset += speed
 
     def load_resources(self):
         self.player.load_resources()
+
+        self.image = pygame.image.load("assets/stone.jpg")
