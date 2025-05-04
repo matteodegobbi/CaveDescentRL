@@ -2,6 +2,7 @@ import collections
 import time
 from typing_extensions import Self
 
+import colorsys
 import pygame
 import numpy as np
 from enum import IntEnum, Enum
@@ -64,7 +65,10 @@ class Player:
         pygame.draw.rect(screen, (0, 255, 0), self.rect)  # green rocket
 
 
+
+
 class Obstacle:
+
     def __init__(self, point1: Vector2, point2: Vector2, type: ObstacleType, total_x):
         self.point1 = point1
         self.point2 = point2
@@ -72,14 +76,16 @@ class Obstacle:
         self.total_x = total_x
 
 
+
     def draw(self, screen):
+        laser_color = (int(103), int( 103), int( 90))
         if self.type == ObstacleType.TOP:
             points = [self.point1, self.point2, Vector2(self.point2.x, 0), Vector2(self.point1.x, 0)]
-            pygame.draw.polygon(screen, (255, 0, 0), points)
+            pygame.draw.polygon(screen, laser_color, points)
         else:
             points = [self.point1, self.point2, Vector2(self.point2.x, SCREEN_HEIGHT),
                       Vector2(self.point1.x, SCREEN_HEIGHT)]
-            pygame.draw.polygon(screen, (255, 0, 0), points)
+            pygame.draw.polygon(screen, laser_color, points)
 
     def collides_with_rect(self, rect):
         return rect.clipline(self.point1, self.point2)
@@ -101,6 +107,7 @@ class Environment:
         self.noise_size = 1024
         self.total_level = 0
         self.reset()
+        self.laser_hue = 0.0
 
     def reset(self):
         self.noise = generate_perlin_noise_2d((self.noise_size, self.noise_size), (4, 2), tileable=(True, True))
@@ -257,12 +264,64 @@ class Environment:
 
         return state
 
+    def line_to_draw(self,point,angle_deg, p_seg1, p_seg2):
+        px, py = point
+        x1, y1 = p_seg1
+        x2, y2 = p_seg2
+
+        angle_rad = math.radians(angle_deg)
+        dx = math.cos(angle_rad)
+        dy = math.sin(angle_rad)
+
+        rx, ry = dx, dy
+        sx, sy = x2 - x1, y2 - y1
+        denom = rx * sy - ry * sx
+        if abs(denom) < 1e-10:
+            return (None,None),None  # Parallel, no intersection
+
+        # Solve for t and u
+        t_num = (x1 - px) * sy - (y1 - py) * sx
+        u_num = (x1 - px) * ry - (y1 - py) * rx
+        t = t_num / denom
+        u = u_num / denom
+
+        if t >= 0 and 0 <= u <= 1:
+            intersection_x = px + t * rx
+            intersection_y = py + t * ry
+            distance = math.hypot(intersection_x - px, intersection_y - py)
+            return (intersection_x, intersection_y), distance
+
+        return (None,None),None
+
     def draw(self,screen):
+        self.laser_hue = (self.laser_hue + 0.005) % 1.0
         assert self.graphics_on
         screen.fill(self.background_color)
-        self.player.draw(screen)
+        min_distances = dict()
+        min_distances[45]=(float('inf'),(None,None))
+        min_distances[-45]=(float('inf'),(None,None))
+        min_distances[0]=(float('inf'),(None,None))
+        r, g, b = colorsys.hsv_to_rgb(self.laser_hue, 1.0, 1.0)
+        laser_color = (int(r * 255), int(g * 255), int(b * 255))
+        pygame.draw.line(screen, laser_color, (self.player.rect.centerx,0), (self.player.rect.centerx,SCREEN_HEIGHT), 2)
         for obstacle in self.obstacles:
             obstacle.draw(screen)
+            #pygame.draw.circle(screen, laser_color, obstacle.point1, 10)
+            for angle in min_distances:
+                (x, y),dist = self.line_to_draw(self.player.rect.center, angle, obstacle.point1, obstacle.point2)
+                if x != None and y != None:
+                   if dist < min_distances[angle][0]:
+                       min_distances[angle] = (dist,(x,y))
+
+
+        for angle in min_distances:
+            if min_distances[angle][1] != (None,None):
+                pygame.draw.line(screen, laser_color, self.player.rect.center, min_distances[angle][1], 2)
+        if min_distances[0][1] == (None,None):
+            pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), 2)
+        pygame.draw.line(screen, laser_color, self.player.rect.center, (SCREEN_WIDTH,self.player.rect.centery), 2)
+
+        self.player.draw(screen)
         pygame.display.flip()
 
     def close(self):
