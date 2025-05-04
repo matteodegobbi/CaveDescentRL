@@ -22,6 +22,7 @@ class ObstacleType(Enum):
     TOP = 0
     BOTTOM = 1
 
+
 class Player:
     def __init__(self):
         self.rect = pygame.Rect(0, 0, 58, 18)
@@ -29,6 +30,7 @@ class Player:
         self.gravity = 0.3
         self.thrust = -0.8
         self.image = None
+        self.rotation = 0
 
     def set_position(self, x, y):
         self.rect.x = x
@@ -39,6 +41,7 @@ class Player:
             self.vel += self.thrust
         self.vel += self.gravity
         self.rect.y += int(self.vel)
+        self.rotation = -min(max(self.vel * 4, -45),45)
 
         # Clamp to screen
         if self.rect.top < 0:
@@ -53,7 +56,9 @@ class Player:
         self.image = pygame.transform.scale(self.image, (self.rect.width, self.rect.height))
 
     def draw(self, screen):
-        screen.blit(self.image, self.rect)
+        rotated_image = pygame.transform.rotate(self.image, self.rotation)
+        rotated_rect = rotated_image.get_rect(center=self.rect.center)
+        screen.blit(rotated_image, rotated_rect)
 
 
 
