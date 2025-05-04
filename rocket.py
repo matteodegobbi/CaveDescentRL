@@ -15,7 +15,7 @@ class Network:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def __init__(self, learning_rate = 0.1) -> None:
-        input_size = 5
+        input_size = 7
         hidden_layer_size = 50
         output_size = 2
         self._model = torch.nn.Sequential(
@@ -87,6 +87,9 @@ def train_rocket(render = False):
     if render:
         pygame.init()
         screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption('Cave Descent')
+        icon_surface = pygame.image.load("assets/icon.png")
+        pygame.display.set_icon(icon_surface)
     env = RocketEnvironment(graphics_on=render)
 
     running = True
@@ -197,6 +200,9 @@ def train_rocket(render = False):
 def run_rocket():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption('Cave Descent')
+    icon_surface = pygame.image.load("assets/icon.png")
+    pygame.display.set_icon(icon_surface)
     env = RocketEnvironment(graphics_on=True)
 
     running = True
@@ -204,7 +210,8 @@ def run_rocket():
     clock = pygame.time.Clock()
 
     # Construct the network
-    network_path = "saves/save_1746316784_700.pt"
+    #network_path = "saves/save_1746316784_700.pt"
+    network_path = "saves/save_1746328323_800.pt"
     network = Network()
     network.load(network_path)
     network_hat = Network()
@@ -228,7 +235,7 @@ def run_rocket():
             action = np.argmax(q_values)
 
             state, reward, terminated, truncated = env.step(action)
-            done = terminated or truncated
+            done = terminated #or truncated
 
             if env.graphics_on:
                 env.draw(screen)
@@ -240,6 +247,9 @@ def run_rocket():
 def human_play_rocket():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption('Cave Descent')
+    icon_surface = pygame.image.load("assets/icon.png")
+    pygame.display.set_icon(icon_surface)
     env = RocketEnvironment(graphics_on=True)
 
     running = True

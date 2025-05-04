@@ -206,36 +206,54 @@ class RocketEnvironment:
             return distance
         return None
 
+
+
+
     def get_obstacle_distances(self):
         min_dist_down = float('inf');
         min_dist_up = float('inf');
         min_dist_right = float('inf');
+        min_dist_45up = float('inf');
+        min_dist_45down = float('inf');
         for obstacle in self.obstacles:
             curr_dist_down = self.vertical_ray_segment_intersection_down(self.player.rect.center, obstacle.point1,
                                                                          obstacle.point2)
             curr_dist_up = self.vertical_ray_segment_intersection_up(self.player.rect.center, obstacle.point1,
                                                                      obstacle.point2)
 
-            curr_dist_right = self.ray_segment_intersection(self.player.rect.center,0, obstacle.point1,
-                                                                     obstacle.point2)
+            curr_dist_right = self.ray_segment_intersection(self.player.rect.center, 0, obstacle.point1,
+                                                            obstacle.point2)
+
+            curr_dist_45up = self.ray_segment_intersection(self.player.rect.center, 45, obstacle.point1,
+                                                           obstacle.point2)
+
+            curr_dist_45down = self.ray_segment_intersection(self.player.rect.center, -45, obstacle.point1,
+                                                             obstacle.point2)
+            # curr_dist_right = self.horizontal_ray_segment_intersection_right(self.player.rect.center, obstacle.point1,
+            #                                                                  obstacle.point2)
             if curr_dist_down != None and curr_dist_down < min_dist_down:
                 min_dist_down = curr_dist_down
 
             if curr_dist_up != None and curr_dist_up < min_dist_up:
                 min_dist_up = curr_dist_up
-
-            if curr_dist_right != None and curr_dist_right< min_dist_right:
-                min_dist_right= curr_dist_right
-        return min_dist_down, min_dist_up, min_dist_right
-
+            if curr_dist_right != None and curr_dist_right < min_dist_right:
+                min_dist_right = curr_dist_right
+            if curr_dist_45up != None and curr_dist_45up < min_dist_45up:
+                min_dist_45up = curr_dist_45up
+            if curr_dist_45down != None and curr_dist_45down < min_dist_45down:
+                min_dist_45down = curr_dist_45down
+        return min_dist_down, min_dist_up, min_dist_right, min_dist_45up, min_dist_45down
 
     def get_state(self):
         # y pos and vel are normalized
-        dist_obst_down, dist_obst_up,dist_obst_right = self.get_obstacle_distances()
+        dist_obst_down, dist_obst_up, dist_obst_right, dist_obst_45up, dist_obst_45down = self.get_obstacle_distances()
         # clamp to avoide infinity
         dist_obst_down = min(dist_obst_down, SCREEN_HEIGHT)
-        dist_obst_up = min(dist_obst_up , SCREEN_HEIGHT)
+        dist_obst_up = min(dist_obst_up, SCREEN_HEIGHT)
         dist_obst_right = min(dist_obst_right, SCREEN_WIDTH)
+        dist_obst_right = min(dist_obst_right, SCREEN_WIDTH)
+        dist_obst_45up = min(dist_obst_45up, SCREEN_HEIGHT)
+        dist_obst_45down = min(dist_obst_45down, SCREEN_HEIGHT)
 
         state = np.array([
             self.player.rect.y / SCREEN_HEIGHT,
@@ -243,9 +261,12 @@ class RocketEnvironment:
             dist_obst_down / SCREEN_HEIGHT,
             dist_obst_up / SCREEN_HEIGHT,
             dist_obst_right / SCREEN_WIDTH,
+            dist_obst_45up / SCREEN_HEIGHT,
+            dist_obst_45down / SCREEN_HEIGHT,
         ], dtype=np.float32)
 
         return state
+
 
     def line_to_draw(self,point,angle_deg, p_seg1, p_seg2):
         px, py = point
