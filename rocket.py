@@ -282,8 +282,7 @@ class Environment:
 
         for i in range(n):
             offset_obstacles_y = np.interp(i, [0, n], [150, 5]) if keep_middle_clear else 5
-            # obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
-            obstacle_gap = 250
+            obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
             total_x = (total_x + OBSTACLE_WIDTH) % self.noise_size
             x = offset_x + i * OBSTACLE_WIDTH
             y = np.interp(self.noise[total_x, total_x], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - obstacle_gap])
@@ -295,8 +294,8 @@ class Environment:
                 self.obstacles.append(obstacle)
             last_x = x
             last_y = y
-    # def get_obstacle_size(self, level):
-    #     return max(-10 * level + 300, 150)
+    def get_obstacle_size(self, level):
+        return max(-10 * level + 300, 150)
 
     def move_obstacles(self, speed = 5):
         for obstacle in self.obstacles:
@@ -496,7 +495,7 @@ def run_rocket():
     clock = pygame.time.Clock()
 
     # Construct the network
-    network_path = "saves/save_1746313177_500.pt"
+    network_path = "saves/save_1746316784_700.pt"
     network = Network()
     network.load(network_path)
     network_hat = Network()
