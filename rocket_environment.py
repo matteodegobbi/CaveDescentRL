@@ -69,7 +69,8 @@ class Obstacle:
 
 
     def draw(self, screen):
-        laser_color = (int(103), int( 103), int( 90))
+        #laser_color = (int(103), int( 103), int( 90))
+        laser_color = (int(150), int( 150), int( 200))
         if self.type == ObstacleType.TOP:
             points = [self.point1, self.point2, Vector2(self.point2.x, 0), Vector2(self.point1.x, 0)]
             pygame.draw.polygon(screen, laser_color, points)
@@ -105,6 +106,9 @@ class RocketEnvironment:
         self.total_level = 0
         self.reset()
         self.laser_hue = 0.0
+        #background
+        self.background_scroll = 0
+        self.scroll_speed = 2  # pixels per frame
 
     def reset(self):
         self.noise = generate_perlin_noise_2d((self.noise_size, self.noise_size), (4, 2), tileable=(True, True))
@@ -293,9 +297,21 @@ class RocketEnvironment:
         return (None,None),None
 
     def draw(self,screen):
+        screen.fill(self.background_color)
+        # Scroll background
+        '''
+        self.background_scroll = (self.background_scroll + self.scroll_speed) % self.texture_width
+        screen.blit(self.background_texture, (-self.background_scroll, 0))
+        screen.blit(self.background_texture, (self.texture_width - self.background_scroll, 0))
+        '''
+
+        self.background_scroll = (self.background_scroll + self.scroll_speed) % self.texture_width
+        for i in range((screen.get_width() // self.texture_width) + 2):
+            x = -self.background_scroll + i * self.texture_width
+            screen.blit(self.background_texture, (x, 0))
+
         self.laser_hue = (self.laser_hue + 0.005) % 1.0
         assert self.graphics_on
-        screen.fill(self.background_color)
         min_distances = dict()
         min_distances[45]=(float('inf'),(None,None))
         min_distances[-45]=(float('inf'),(None,None))
@@ -362,3 +378,6 @@ class RocketEnvironment:
 
     def load_resources(self):
         self.player.load_resources()
+        self.background_texture = pygame.image.load("assets/background.png").convert()
+        self.background_texture = pygame.transform.scale(self.background_texture, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.texture_width = self.background_texture.get_width()
