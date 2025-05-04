@@ -29,19 +29,13 @@ class ObstacleType(Enum):
     TOP = 0
     BOTTOM = 1
 
-class Rectangle:
-    def __init__(self, x, y, width, height):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
 class Player:
     def __init__(self):
-        self.rect = pygame.Rect(0, 0, 40, 20)
+        self.rect = pygame.Rect(0, 0, 58, 18)
         self.vel = 0
         self.gravity = 0.3
         self.thrust = -0.8
+        self.image = None
 
     def set_position(self, x, y):
         self.rect.x = x
@@ -61,8 +55,12 @@ class Player:
             self.rect.bottom = SCREEN_HEIGHT
             self.vel = 0
 
+    def load_resources(self):
+        self.image = pygame.image.load("assets/jet.png")
+        self.image = pygame.transform.scale(self.image, (self.rect.width, self.rect.height))
+
     def draw(self, screen):
-        pygame.draw.rect(screen, (0, 255, 0), self.rect)  # green rocket
+        screen.blit(self.image, self.rect)
 
 
 
@@ -89,6 +87,12 @@ class Obstacle:
 
     def collides_with_rect(self, rect):
         return rect.clipline(self.point1, self.point2)
+
+    def load_resources(self):
+        # self.image = pygame.image.load("assets/stone.jpg")
+        # self.image = pygame.transform.scale(self.image, (self.rect.width, self.rect.height))
+        # self.image = pygame.transform.flip(self.image, True, False)
+        pass
 
 
 class Environment:
@@ -120,6 +124,8 @@ class Environment:
 
         self.player = Player()
         self.player.set_position(300, SCREEN_HEIGHT / 2)
+        if self.graphics_on:
+            self.load_resources()
         return self.get_state()
 
     def step(self, action):
@@ -341,8 +347,7 @@ class Environment:
 
         for i in range(n):
             offset_obstacles_y = np.interp(i, [0, n], [150, 5]) if keep_middle_clear else 5
-            # obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
-            obstacle_gap = 250
+            obstacle_gap = np.interp(i, [0, n], [self.get_obstacle_size(self.total_level - 1), self.get_obstacle_size(self.total_level)])
             total_x = (total_x + OBSTACLE_WIDTH) % self.noise_size
             x = offset_x + i * OBSTACLE_WIDTH
             y = np.interp(self.noise[total_x, total_x], [-1, 1], [offset_obstacles_y, SCREEN_HEIGHT - offset_obstacles_y - obstacle_gap])
@@ -354,13 +359,17 @@ class Environment:
                 self.obstacles.append(obstacle)
             last_x = x
             last_y = y
-    # def get_obstacle_size(self, level):
-    #     return max(-10 * level + 300, 150)
+    def get_obstacle_size(self, level):
+        return max(-10 * level + 300, 150)
 
     def move_obstacles(self, speed = 5):
         for obstacle in self.obstacles:
             obstacle.point1.x -= speed
             obstacle.point2.x -= speed
+
+    def load_resources(self):
+        self.player.load_resources()
+
 class Network:
     # Use GPU if available.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -477,7 +486,7 @@ def train_rocket(render = False):
 
             # Choose an action.
             q_values = network.predict(state[np.newaxis])[0]
-            action = np.argmax(q_values) #if np.random.random() > epsilon else np.random.choice([Action.PRESSED, Action.RELEASED])
+            action = np.argmax(q_values) if np.random.random() > epsilon else np.random.choice([Action.PRESSED, Action.RELEASED])
 
             next_state, reward, terminated, truncated = env.step(action)
             done = terminated or truncated
@@ -555,7 +564,7 @@ def run_rocket():
     clock = pygame.time.Clock()
 
     # Construct the network
-    network_path = "saves/save_1746313177_500.pt"
+    network_path = "saves/save_1746316784_700.pt"
     network = Network()
     network.load(network_path)
     network_hat = Network()
@@ -589,16 +598,11 @@ def human_play_rocket():
     env = Environment(graphics_on=True)
 
     running = True
-    state = env.reset()
     clock = pygame.time.Clock()
 
-
-    rewards = []
-    episodes_count = 0
     while running:
         done = False
-        state = env.reset()
-        reward_sum = 0
+        env.reset()
         while not done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -609,7 +613,7 @@ def human_play_rocket():
 
             next_state, reward, terminated,truncated = env.step(action)
             done = terminated
-            reward_sum += reward
+
             if env.graphics_on:
                 env.draw(screen)
                 clock.tick(60)
@@ -617,18 +621,6 @@ def human_play_rocket():
             if done:
                 if env.graphics_on:
                     pygame.time.delay(500)
-            state = next_state
-        rewards.append(reward_sum)
-        episodes_count += 1
-        if episodes_count % 10 == 0:
-            mean_return = np.mean(rewards[-100:])
-            std_return = np.std(rewards[-100:])
-            recent_returns = rewards[-10:]
-            returns_str = " ".join(map(str, recent_returns))
-            print(
-                f"Episode {episodes_count}, mean 100-episode return {mean_return:.2f} +-{std_return:.2f}, returns {returns_str}")
-        if episodes_count == 10000:
-            break
     env.close()
 
 import  argparse
