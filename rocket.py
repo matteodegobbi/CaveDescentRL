@@ -226,7 +226,6 @@ def run_rocket():
                     running = False
 
                 if event.type == pygame.KEYDOWN:
-                    print(event.key)
                     if event.key == pygame.K_x:
                         env.are_lasers_drawn = not env.are_lasers_drawn
 
